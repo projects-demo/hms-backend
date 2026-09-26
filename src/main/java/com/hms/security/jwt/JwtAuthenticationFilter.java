@@ -34,7 +34,7 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
 
     private final JwtService jwtService;
 
-    @Override
+/**    @Override
     protected void doFilterInternal(HttpServletRequest request, HttpServletResponse response, FilterChain chain)
             throws ServletException, IOException {
         try {
@@ -75,4 +75,61 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
             TenantContext.clear();
         }
     }
+*/
+
+
+    @Override
+    protected void doFilterInternal(HttpServletRequest request, HttpServletResponse response, FilterChain chain)
+            throws ServletException, IOException {
+        try {
+            // FIX: Check for the X-Tenant-ID header (used primarily during Login or public endpoints)
+            String tenantHeader = request.getHeader("X-Tenant-ID");
+            if (tenantHeader != null && !tenantHeader.trim().isEmpty()) {
+                String cleanSchema = tenantHeader.trim().toLowerCase().replace("-", "_");
+                // Match the schema prefix pattern "tenant_" defined in your tenancy settings
+                if (!cleanSchema.startsWith("tenant_") && !cleanSchema.equals("hms_master")) {
+                    cleanSchema = "tenant_" + cleanSchema;
+                }
+                TenantContext.setSchema(cleanSchema);
+                log.debug("[HMS SECURITY] Tenant context explicitly overridden by header: {}", cleanSchema);
+            }
+
+            String header = request.getHeader("Authorization");
+            if (header != null && header.startsWith("Bearer ")) {
+                String token = header.substring(7);
+                try {
+                    Claims claims = jwtService.parseClaims(token);
+                    if (!"ACCESS".equals(claims.get("type"))) {
+                        throw new JwtException("Not an access token");
+                    }
+                    String role = claims.get("role", String.class);
+                    boolean platformUser = Boolean.TRUE.equals(claims.get("platform", Boolean.class));
+                    String tenantSchema = claims.get("schema", String.class);
+                    String tenantCode = claims.get("tenantCode", String.class);
+                    Long userId = claims.get("userId", Long.class);
+                    String fullName = claims.get("fullName", String.class);
+
+                    // If a valid JWT is present, its internal schema binding overrides the header for safety
+                    if (!platformUser && tenantSchema != null) {
+                        TenantContext.setSchema(tenantSchema);
+                    }
+
+                    AuthenticatedUser principal = new AuthenticatedUser(
+                            userId, claims.getSubject(), fullName, role, tenantCode, tenantSchema, platformUser);
+
+                    var authorities = List.of(new SimpleGrantedAuthority("ROLE_" + role));
+                    var authToken = new UsernamePasswordAuthenticationToken(principal, null, authorities);
+                    SecurityContextHolder.getContext().setAuthentication(authToken);
+                } catch (JwtException | IllegalArgumentException e) {
+                    log.warn("Rejected JWT on {} {}: {}", request.getMethod(), request.getRequestURI(), e.getMessage());
+                    SecurityContextHolder.clearContext();
+                }
+            }
+            chain.doFilter(request, response);
+        } finally {
+            // Stays exactly as it was: completely safe from thread local leakage!
+            TenantContext.clear();
+        }
+    }
+
 }

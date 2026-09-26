@@ -4,16 +4,14 @@ import com.hms.tenancy.multitenant.CurrentTenantIdentifierResolverImpl;
 import com.hms.tenancy.multitenant.SchemaMultiTenantConnectionProvider;
 import com.zaxxer.hikari.HikariDataSource;
 import org.hibernate.cfg.AvailableSettings;
-import org.hibernate.jpa.HibernatePersistenceProvider;
 import org.springframework.beans.factory.annotation.Qualifier;
+import org.springframework.boot.orm.jpa.EntityManagerFactoryBuilder;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.context.annotation.Primary;
 import org.springframework.data.jpa.repository.config.EnableJpaRepositories;
 import org.springframework.orm.jpa.JpaTransactionManager;
-import org.springframework.orm.jpa.JpaVendorAdapter;
 import org.springframework.orm.jpa.LocalContainerEntityManagerFactoryBean;
-import org.springframework.orm.jpa.vendor.HibernateJpaVendorAdapter;
 import org.springframework.transaction.PlatformTransactionManager;
 
 import javax.sql.DataSource;
@@ -22,10 +20,16 @@ import java.util.Map;
 
 /**
  * PRIMARY persistence unit - every domain module (identity, patient, doctor,
- * staff, appointment, opd, ipd, billing, pharmacy) lives here. Hibernate is
- * configured with MULTI_TENANT=SCHEMA so every query/insert/update
- * automatically runs against whatever schema TenantContext currently holds -
- * repository code never needs to know or care which hospital it's serving.
+ * staff, appointment, opd, ipd, billing, pharmacy, pharmacy, branding) lives here.
+ * Hibernate is configured with a MultiTenantConnectionProvider + CurrentTenantIdentifierResolver
+ * so every query/insert/update automatically runs against whatever schema TenantContext
+ * currently holds - repository code never needs to know or care which hospital it's serving.
+ *
+ * IMPORTANT: this MUST be built via Spring Boot's EntityManagerFactoryBuilder
+ * (not a hand-rolled LocalContainerEntityManagerFactoryBean + HibernateJpaVendorAdapter),
+ * because the builder is what correctly wires Hibernate's multi-tenancy bootstrap.
+ * A manual build was tried once during a Cloud Run migration and silently broke
+ * tenant schema switching - every query fell back to the master schema instead.
  */
 @Configuration
 @EnableJpaRepositories(
@@ -50,30 +54,9 @@ public class TenantPersistenceConfig {
     @Bean
     @Primary
     public LocalContainerEntityManagerFactoryBean entityManagerFactory(
+            EntityManagerFactoryBuilder builder,
             @Qualifier("tenantDataSource") HikariDataSource tenantDataSource,
             CurrentTenantIdentifierResolverImpl tenantIdentifierResolver) {
-
-        LocalContainerEntityManagerFactoryBean factory = new LocalContainerEntityManagerFactoryBean();
-        factory.setDataSource(tenantDataSource);
-        factory.setPackagesToScan(
-                "com.hms.common.codeseq",
-                "com.hms.identity.entity",
-                "com.hms.patient.entity",
-                "com.hms.doctor.entity",
-                "com.hms.staff.entity",
-                "com.hms.appointment.entity",
-                "com.hms.opd.entity",
-                "com.hms.ipd.entity",
-                "com.hms.billing.entity",
-                "com.hms.pharmacy.entity",
-                "com.hms.branding.repository",
-                "com.hms.branding.entity"
-        );
-        factory.setPersistenceUnitName("tenant");
-        factory.setPersistenceProviderClass(HibernatePersistenceProvider.class);
-
-        JpaVendorAdapter vendorAdapter = new HibernateJpaVendorAdapter();
-        factory.setJpaVendorAdapter(vendorAdapter);
 
         Map<String, Object> props = new HashMap<>();
         props.put(AvailableSettings.MULTI_TENANT_CONNECTION_PROVIDER,
@@ -85,9 +68,16 @@ public class TenantPersistenceConfig {
         props.put(AvailableSettings.ORDER_INSERTS, true);
         props.put(AvailableSettings.ORDER_UPDATES, true);
         props.put(AvailableSettings.DEFAULT_BATCH_FETCH_SIZE, 50);
-        factory.setJpaPropertyMap(props);
 
-        return factory;
+        return builder
+                .dataSource(tenantDataSource)
+                .packages("com.hms.common.codeseq", "com.hms.identity.entity", "com.hms.patient.entity",
+                        "com.hms.doctor.entity", "com.hms.staff.entity", "com.hms.appointment.entity",
+                        "com.hms.opd.entity", "com.hms.ipd.entity", "com.hms.billing.entity",
+                        "com.hms.pharmacy.entity", "com.hms.branding.entity")
+                .persistenceUnit("tenant")
+                .properties(props)
+                .build();
     }
 
     @Bean

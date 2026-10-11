@@ -1,0 +1,7 @@
+# Ignore the target build directory
+target/
+
+# Ignore the application configuration file
+application.yml
+
+.DS_Store

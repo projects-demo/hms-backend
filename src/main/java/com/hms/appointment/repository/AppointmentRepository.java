@@ -9,6 +9,7 @@ import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 
 import java.time.LocalDate;
+import java.util.Collection;
 import java.util.List;
 import java.util.Optional;
 
@@ -34,6 +35,29 @@ public interface AppointmentRepository extends JpaRepository<Appointment, Long> 
     long countByAppointmentDate(LocalDate date);
 
     long countByAppointmentDateAndStatus(LocalDate date, AppointmentStatus status);
+
+    @Query(value = """
+           select a.id as appointmentId,
+                        case when a.status = 'CANCELLED' then null else
+                      1 + (select count(*)
+                           from appointments earlier
+                                     left join appointment_slots earlier_slot on earlier.slot_id = earlier_slot.id
+                           where earlier.doctor_id = a.doctor_id
+                             and earlier.appointment_date = a.appointment_date
+                             and earlier.status <> 'CANCELLED'
+                                       and ((current_slot.start_time is not null
+                                                 and earlier_slot.start_time is not null
+                                                 and (earlier_slot.start_time < current_slot.start_time
+                                                        or (earlier_slot.start_time = current_slot.start_time and earlier.id < a.id)))
+                                              or (current_slot.start_time is null
+                                                    and (earlier_slot.id is not null
+                                                           or (earlier_slot.id is null and earlier.id < a.id)))))
+                  end as queueNumber
+           from appointments a
+           left join appointment_slots current_slot on a.slot_id = current_slot.id
+           where a.id in (:appointmentIds)
+           """, nativeQuery = true)
+    List<QueueNumberRow> findQueueNumbers(@Param("appointmentIds") Collection<Long> appointmentIds);
 
     // --- Analytics / reporting queries below ---
     // Native SQL because these join across doctors/app_users/departments, which
@@ -100,4 +124,9 @@ public interface AppointmentRepository extends JpaRepository<Appointment, Long> 
         Long getNewCount();
         Long getFollowupCount();
     }
+
+       interface QueueNumberRow {
+              Long getAppointmentId();
+              Long getQueueNumber();
+       }
 }

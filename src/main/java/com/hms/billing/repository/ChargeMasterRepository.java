@@ -17,9 +17,19 @@ public interface ChargeMasterRepository extends JpaRepository<ChargeMaster, Long
 
     @Query("""
            select c from ChargeMaster c join fetch c.chargeType
-           where c.active = true and (:q is null or lower(c.name) like lower(concat('%', :q, '%')))
+           where (:includeInactive = true or c.active = true)
+             and (:chargeTypeId is null or c.chargeType.id = :chargeTypeId)
+             and (:active is null or c.active = :active)
+             and (:q is null or lower(c.name) like lower(concat('%', :q, '%'))
+                  or lower(c.code) like lower(concat('%', :q, '%')))
            """)
-    Page<ChargeMaster> search(@Param("q") String q, Pageable pageable);
+    Page<ChargeMaster> search(@Param("q") String q, @Param("chargeTypeId") Long chargeTypeId,
+                              @Param("active") Boolean active, @Param("includeInactive") boolean includeInactive,
+                              Pageable pageable);
+
+    long countByActiveTrue();
+
+    long countByActiveFalse();
 
     @Query("""
            select new com.hms.common.dto.OptionDto(c.id, c.name, c.code)

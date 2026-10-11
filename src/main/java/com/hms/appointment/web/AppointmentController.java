@@ -49,8 +49,8 @@ public class AppointmentController {
             @RequestParam(required = false) Integer page,
             @RequestParam(required = false) Integer size) {
         var pageable = pageRequestFactory.of(page, size, "appointmentDate", "desc");
-        var result = appointmentService.search(doctorId, patientId, date, status, pageable);
-        return ApiResponse.ok(PageResponse.of(result.map(AppointmentResponse::from)));
+        var result = appointmentService.searchResponses(doctorId, patientId, date, status, pageable);
+        return ApiResponse.ok(PageResponse.of(result));
     }
 
     @PatchMapping("/{id}/status")

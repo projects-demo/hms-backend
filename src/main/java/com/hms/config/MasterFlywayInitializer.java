@@ -3,10 +3,7 @@ package com.hms.config;
 import com.zaxxer.hikari.HikariDataSource;
 import org.flywaydb.core.Flyway;
 import org.springframework.beans.factory.annotation.Qualifier;
-import org.springframework.boot.ApplicationArguments;
-import org.springframework.boot.ApplicationRunner;
-import org.springframework.core.Ordered;
-import org.springframework.core.annotation.Order;
+import org.springframework.beans.factory.SmartInitializingSingleton;
 import org.springframework.stereotype.Component;
 
 /**
@@ -16,8 +13,7 @@ import org.springframework.stereotype.Component;
  * (they don't exist yet at application startup).
  */
 @Component
-@Order(Ordered.HIGHEST_PRECEDENCE)
-public class MasterFlywayInitializer implements ApplicationRunner {
+public class MasterFlywayInitializer implements SmartInitializingSingleton {
 
     private final HikariDataSource masterDataSource;
 
@@ -29,7 +25,7 @@ public class MasterFlywayInitializer implements ApplicationRunner {
     }
 
     @Override
-    public void run(ApplicationArguments args) {
+    public void afterSingletonsInstantiated() {
         Flyway.configure()
                 .dataSource(masterDataSource)
                 .locations("classpath:db/migration/master")

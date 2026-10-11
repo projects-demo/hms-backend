@@ -5,6 +5,6 @@ import jakarta.validation.constraints.DecimalMin;
 import java.math.BigDecimal;
 
 public record FinalizeBillRequest(
-        @DecimalMin("0.0") BigDecimal discountAmount,
+        Long discountMasterId,
         @DecimalMin("0.0") BigDecimal taxAmount
 ) {}

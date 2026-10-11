@@ -9,6 +9,7 @@ import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 
 import java.util.List;
+import java.util.Collection;
 import java.util.Optional;
 
 public interface DoctorRepository extends JpaRepository<Doctor, Long> {
@@ -47,9 +48,21 @@ public interface DoctorRepository extends JpaRepository<Doctor, Long> {
            """, nativeQuery = true)
     List<DoctorNameRow> autocompleteByName(@Param("q") String q, @Param("limit") int limit);
 
+    @Query(value = """
+           select d.id as id, u.full_name as fullName
+           from doctors d join app_users u on d.user_id = u.id
+           where d.id in (:doctorIds)
+           """, nativeQuery = true)
+    List<DoctorDisplayRow> findDisplayNamesByIds(@Param("doctorIds") Collection<Long> doctorIds);
+
     interface DoctorNameRow {
         Long getId();
         String getLabel();
         String getSubLabel();
     }
+
+       interface DoctorDisplayRow {
+              Long getId();
+              String getFullName();
+       }
 }

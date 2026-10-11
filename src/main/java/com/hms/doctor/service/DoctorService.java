@@ -64,11 +64,15 @@ public class DoctorService {
 
     public Doctor update(Long id, DoctorRequest r) {
         Doctor doctor = getOrThrow(id);
-        if (!doctor.getDepartment().getId().equals(r.departmentId())) {
-            Department dept = departmentRepository.findById(r.departmentId())
-                    .orElseThrow(() -> ResourceNotFoundException.of("Department", r.departmentId()));
-            doctor.setDepartment(dept);
-        }
+        AppUser user = appUserRepository.findById(doctor.getUserId())
+            .orElseThrow(() -> ResourceNotFoundException.of("User", doctor.getUserId()));
+        if (r.fullName() != null) user.setFullName(r.fullName());
+        if (r.email() != null) user.setEmail(r.email());
+        if (r.phone() != null) user.setPhone(r.phone());
+        appUserRepository.save(user);
+        Department dept = departmentRepository.findById(r.departmentId())
+            .orElseThrow(() -> ResourceNotFoundException.of("Department", r.departmentId()));
+        doctor.setDepartment(dept);
         apply(doctor, r);
         return doctorRepository.save(doctor);
     }

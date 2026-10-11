@@ -15,4 +15,10 @@ public class ChargeType {
 
     @Column(nullable = false, unique = true, length = 50)
     private String name;
+
+    @Column(nullable = false, unique = true, length = 50)
+    private String code;
+
+    @Column(name = "is_active", nullable = false)
+    private boolean active = true;
 }

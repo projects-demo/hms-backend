@@ -16,6 +16,8 @@ public interface BillRepository extends JpaRepository<Bill, Long> {
 
     Optional<Bill> findByBillNumber(String billNumber);
 
+       boolean existsByAppointmentIdAndStatusNot(Long appointmentId, BillStatus status);
+
     @Query("""
            select b from Bill b
            where (:patientId is null or b.patientId = :patientId)

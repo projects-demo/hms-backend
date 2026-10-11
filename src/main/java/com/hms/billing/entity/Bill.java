@@ -46,6 +46,12 @@ public class Bill extends AuditableEntity {
     @Column(name = "discount_amount", nullable = false, precision = 12, scale = 2)
     private BigDecimal discountAmount = BigDecimal.ZERO;
 
+    @Column(name = "discount_master_id")
+    private Long discountMasterId;
+
+    @Column(name = "discount_percentage", precision = 5, scale = 2)
+    private BigDecimal discountPercentage;
+
     @Column(name = "tax_amount", nullable = false, precision = 12, scale = 2)
     private BigDecimal taxAmount = BigDecimal.ZERO;
 

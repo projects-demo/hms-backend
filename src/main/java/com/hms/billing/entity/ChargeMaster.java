@@ -28,6 +28,9 @@ public class ChargeMaster {
     @Column(name = "default_price", nullable = false, precision = 10, scale = 2)
     private BigDecimal defaultPrice;
 
+    @Column(name = "applicable_doctor_id")
+    private Long applicableDoctorId;
+
     @Column(name = "is_active", nullable = false)
     private boolean active = true;
 }

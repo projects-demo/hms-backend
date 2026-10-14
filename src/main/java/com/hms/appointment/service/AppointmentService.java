@@ -24,6 +24,7 @@ import java.time.LocalDate;
 import java.time.LocalTime;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Set;
 import java.util.stream.Collectors;
 
@@ -158,6 +159,31 @@ public class AppointmentService {
     }
 
     @Transactional(value = "transactionManager", readOnly = true)
+    public AppointmentResponse getResponseOrThrow(Long id) {
+        return toResponse(getOrThrow(id));
+    }
+
+    @Transactional(value = "transactionManager", readOnly = true)
+    public AppointmentResponse getResponseByCodeOrThrow(String appointmentCode) {
+        Appointment appointment = appointmentRepository.findByAppointmentCode(appointmentCode.trim().toUpperCase())
+                .orElseThrow(() -> ResourceNotFoundException.of("Appointment", appointmentCode));
+        return toResponse(appointment);
+    }
+
+    public AppointmentResponse toResponse(Appointment appointment) {
+        AppointmentSlot slot = appointment.getSlotId() == null
+                ? null
+                : slotRepository.findById(appointment.getSlotId()).orElse(null);
+        String patientName = patientRepository.findDisplayNamesByIds(List.of(appointment.getPatientId())).stream()
+            .findFirst()
+            .map(PatientRepository.PatientDisplayRow::getFullName)
+            .orElse(null);
+        return AppointmentResponse.from(appointment, patientName, null, null,
+                slot == null ? null : slot.getStartTime(),
+                slot == null ? null : slot.getEndTime());
+    }
+
+    @Transactional(value = "transactionManager", readOnly = true)
     public Page<Appointment> search(Long doctorId, Long patientId, LocalDate date, AppointmentStatus status, Pageable pageable) {
         return appointmentRepository.search(doctorId, patientId, date, status, pageable);
     }
@@ -177,8 +203,21 @@ public class AppointmentService {
                 .filter(row -> row.getQueueNumber() != null)
                 .collect(Collectors.toMap(AppointmentRepository.QueueNumberRow::getAppointmentId,
                         AppointmentRepository.QueueNumberRow::getQueueNumber));
+        List<Long> slotIds = appointments.stream().map(Appointment::getSlotId)
+            .filter(Objects::nonNull).distinct().toList();
+        Map<Long, AppointmentSlot> slotsById = slotRepository.findAllById(slotIds).stream()
+            .collect(Collectors.toMap(AppointmentSlot::getId, slot -> slot));
+        Set<Long> patientIds = appointments.stream().map(Appointment::getPatientId).collect(Collectors.toSet());
+        Map<Long, String> patientNames = patientRepository.findDisplayNamesByIds(patientIds).stream()
+                .collect(Collectors.toMap(PatientRepository.PatientDisplayRow::getId,
+                        PatientRepository.PatientDisplayRow::getFullName));
 
-        return appointments.map(a -> AppointmentResponse.from(a, doctorNames.get(a.getDoctorId()), queueNumbers.get(a.getId())));
+        return appointments.map(a -> {
+            AppointmentSlot slot = slotsById.get(a.getSlotId());
+            return AppointmentResponse.from(a, patientNames.get(a.getPatientId()), doctorNames.get(a.getDoctorId()), queueNumbers.get(a.getId()),
+                slot == null ? null : slot.getStartTime(),
+                slot == null ? null : slot.getEndTime());
+        });
     }
 
     private void validateTransition(AppointmentStatus from, AppointmentStatus to) {

@@ -29,6 +29,13 @@ public class DepartmentController {
         return ApiResponse.ok(DepartmentResponse.from(departmentService.create(request)));
     }
 
+    @PutMapping("/{id}")
+    @PreAuthorize("hasRole('HOSPITAL_ADMIN')")
+    @Operation(summary = "Update department")
+    public ApiResponse<DepartmentResponse> update(@PathVariable Long id, @Valid @RequestBody DepartmentRequest request) {
+        return ApiResponse.ok(DepartmentResponse.from(departmentService.update(id, request)));
+    }
+
     @GetMapping
     @Operation(summary = "List departments (paginated)")
     public ApiResponse<PageResponse<DepartmentResponse>> list(

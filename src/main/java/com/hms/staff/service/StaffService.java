@@ -39,8 +39,8 @@ public class StaffService {
     private final CodeGeneratorService codeGeneratorService;
 
     public StaffProfile create(StaffRequest r) {
-        if (r.username() == null || r.password() == null || r.fullName() == null) {
-            throw new BusinessRuleException("username, password and fullName are required to create staff");
+        if (r.username() == null || r.password() == null || r.fullName() == null || r.email() == null || r.email().isBlank()) {
+            throw new BusinessRuleException("username, email, password and fullName are required to create staff");
         }
         if (appUserRepository.existsByUsername(r.username())) {
             throw new DuplicateResourceException("Username '" + r.username() + "' is already taken");

@@ -29,6 +29,16 @@ public class DepartmentService {
         return departmentRepository.save(d);
     }
 
+    public Department update(Long id, DepartmentRequest request) {
+        Department department = getOrThrow(id);
+        if (departmentRepository.existsByNameIgnoreCaseAndIdNot(request.name().trim(), id)) {
+            throw new DuplicateResourceException("Department '" + request.name() + "' already exists");
+        }
+        department.setName(request.name().trim());
+        department.setDescription(request.description());
+        return departmentRepository.save(department);
+    }
+
     @Transactional(value = "transactionManager", readOnly = true)
     public Page<Department> list(String q, Pageable pageable) {
         return (q == null || q.isBlank()) ? departmentRepository.findAll(pageable)

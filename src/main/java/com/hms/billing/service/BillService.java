@@ -1,26 +1,38 @@
 package com.hms.billing.service;
 
 import com.hms.billing.dto.CreateBillRequest;
+import com.hms.billing.dto.BillResponse;
+import com.hms.billing.dto.PaymentReceiptResponse;
 import com.hms.billing.entity.*;
 import com.hms.billing.repository.BillReceiptRepository;
 import com.hms.billing.repository.BillRefundRepository;
 import com.hms.billing.repository.BillRepository;
 import com.hms.billing.repository.ChargeMasterRepository;
 import com.hms.billing.repository.DiscountMasterRepository;
+import com.hms.identity.entity.AppUser;
+import com.hms.identity.entity.Role;
+import com.hms.identity.repository.AppUserRepository;
 import com.hms.appointment.entity.Appointment;
 import com.hms.appointment.repository.AppointmentRepository;
 import com.hms.common.codeseq.CodeGeneratorService;
 import com.hms.common.exception.BusinessRuleException;
 import com.hms.common.exception.ResourceNotFoundException;
 import com.hms.patient.repository.PatientRepository;
+import com.hms.patient.entity.Patient;
+import com.hms.doctor.repository.DoctorRepository;
 import com.hms.security.jwt.AuthenticatedUser;
 import lombok.RequiredArgsConstructor;
+import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.math.BigDecimal;
+import java.util.List;
+import java.util.Map;
+import java.util.Set;
+import java.util.stream.Collectors;
 
 @Service
 @RequiredArgsConstructor
@@ -34,8 +46,11 @@ public class BillService {
     private final BillRefundRepository refundRepository;
     private final PatientRepository patientRepository;
     private final AppointmentRepository appointmentRepository;
+    private final DoctorRepository doctorRepository;
     private final CodeGeneratorService codeGeneratorService;
     private final BillingAuditService billingAuditService;
+    private final AppUserRepository appUserRepository;
+    private final PasswordEncoder passwordEncoder;
 
     public Bill create(CreateBillRequest r, AuthenticatedUser actor) {
         patientRepository.findById(r.patientId()).orElseThrow(() -> ResourceNotFoundException.of("Patient", r.patientId()));
@@ -59,7 +74,54 @@ public class BillService {
         bill.setStatus(BillStatus.DRAFT);
         bill.setCreatedBy(actor.userId());
 
-        for (var itemReq : r.items()) {
+        addItems(bill, r.items());
+        bill.recalculateTotals();
+        bill = billRepository.save(bill);
+        billingAuditService.record("BILL_CREATED", "BILL", bill.getId(), bill.getId(), actor, java.util.Map.of(
+                "billNumber", bill.getBillNumber(), "patientId", bill.getPatientId(), "billType", bill.getBillType(),
+                "subtotalAmount", bill.getSubtotalAmount(), "items", bill.getItems().stream().map(item -> java.util.Map.of(
+                        "description", item.getDescription(), "quantity", item.getQuantity(),
+                        "unitPrice", item.getUnitPrice(), "amount", item.getAmount())).toList()));
+        return bill;
+    }
+
+    public Bill updateDraft(Long id, CreateBillRequest request, AuthenticatedUser actor) {
+        Bill bill = getOrThrow(id);
+        if (bill.getStatus() != BillStatus.DRAFT) {
+            throw new BusinessRuleException("Only a DRAFT bill can be edited");
+        }
+        patientRepository.findById(request.patientId())
+                .orElseThrow(() -> ResourceNotFoundException.of("Patient", request.patientId()));
+        if (request.appointmentId() != null) {
+            Appointment appointment = appointmentRepository.findById(request.appointmentId())
+                    .orElseThrow(() -> ResourceNotFoundException.of("Appointment", request.appointmentId()));
+            if (!appointment.getPatientId().equals(request.patientId())) {
+                throw new BusinessRuleException("The bill patient must match the appointment patient");
+            }
+            if (billRepository.existsByAppointmentIdAndStatusNotAndIdNot(
+                    request.appointmentId(), BillStatus.CANCELLED, id)) {
+                throw new BusinessRuleException("An active bill already exists for this appointment");
+            }
+        }
+
+        bill.setPatientId(request.patientId());
+        bill.setAdmissionId(request.admissionId());
+        bill.setAppointmentId(request.appointmentId());
+        bill.setBillType(request.billType());
+        bill.getItems().clear();
+        addItems(bill, request.items());
+        bill.recalculateTotals();
+        bill = billRepository.save(bill);
+        billingAuditService.record("BILL_UPDATED", "BILL", bill.getId(), bill.getId(), actor, java.util.Map.of(
+                "billNumber", bill.getBillNumber(), "patientId", bill.getPatientId(),
+                "subtotalAmount", bill.getSubtotalAmount(), "items", bill.getItems().stream().map(item -> java.util.Map.of(
+                        "description", item.getDescription(), "quantity", item.getQuantity(),
+                        "unitPrice", item.getUnitPrice(), "amount", item.getAmount())).toList()));
+        return bill;
+    }
+
+    private void addItems(Bill bill, java.util.List<CreateBillRequest.BillItemRequest> itemRequests) {
+        for (var itemReq : itemRequests) {
             BillItem item = new BillItem();
             var chargeMaster = itemReq.chargeMasterId() == null ? null : chargeMasterRepository.findById(itemReq.chargeMasterId())
                     .orElseThrow(() -> ResourceNotFoundException.of("ChargeMaster", itemReq.chargeMasterId()));
@@ -74,17 +136,9 @@ public class BillService {
             item.setAmount(unitPrice.multiply(BigDecimal.valueOf(itemReq.quantity())));
             bill.addItem(item);
         }
-        bill.recalculateTotals();
-        bill = billRepository.save(bill);
-        billingAuditService.record("BILL_CREATED", "BILL", bill.getId(), bill.getId(), actor, java.util.Map.of(
-                "billNumber", bill.getBillNumber(), "patientId", bill.getPatientId(), "billType", bill.getBillType(),
-                "subtotalAmount", bill.getSubtotalAmount(), "items", bill.getItems().stream().map(item -> java.util.Map.of(
-                        "description", item.getDescription(), "quantity", item.getQuantity(),
-                        "unitPrice", item.getUnitPrice(), "amount", item.getAmount())).toList()));
-        return bill;
     }
 
-    public Bill finalizeBill(Long id, Long discountMasterId, BigDecimal taxAmount, AuthenticatedUser actor) {
+    public Bill finalizeBill(Long id, Long discountMasterId, BigDecimal taxAmount, PaymentMode paymentMode, AuthenticatedUser actor) {
         Bill bill = getOrThrow(id);
         if (bill.getStatus() != BillStatus.DRAFT) {
             throw new BusinessRuleException("Only a DRAFT bill can be finalized (current status: " + bill.getStatus() + ")");
@@ -116,17 +170,24 @@ public class BillService {
         bill.setStatus(BillStatus.FINALIZED);
         bill.setFinalizedAt(java.time.LocalDateTime.now());
         bill = billRepository.save(bill);
-        syncAppointmentPaidStatus(bill);
+        if (bill.getTotalAmount().compareTo(BigDecimal.ZERO) > 0) {
+            if (paymentMode == null) throw new BusinessRuleException("Select a payment method to submit this bill");
+            recordReceipt(bill.getId(), bill.getBalanceAmount(), paymentMode, actor);
+            bill = billRepository.findById(id).orElseThrow(() -> ResourceNotFoundException.of("Bill", id));
+        } else {
+            syncAppointmentPaidStatus(bill);
+        }
         billingAuditService.record("BILL_FINALIZED", "BILL", bill.getId(), bill.getId(), actor, java.util.Map.of(
                 "previousTotal", previousTotal, "previousDiscount", previousDiscount,
                 "discountMasterId", bill.getDiscountMasterId() == null ? "none" : bill.getDiscountMasterId(),
                 "discountPercentage", bill.getDiscountPercentage() == null ? BigDecimal.ZERO : bill.getDiscountPercentage(),
                 "discountAmount", bill.getDiscountAmount(), "taxAmount", bill.getTaxAmount(),
-                "totalAmount", bill.getTotalAmount(), "status", bill.getStatus()));
+                "totalAmount", bill.getTotalAmount(), "paymentMode", paymentMode == null ? "NONE" : paymentMode.name(),
+                "status", bill.getStatus()));
         return bill;
     }
 
-    public BillReceipt recordReceipt(Long billId, BigDecimal amount, PaymentMode mode, AuthenticatedUser actor) {
+    public PaymentReceiptResponse recordReceipt(Long billId, BigDecimal amount, PaymentMode mode, AuthenticatedUser actor) {
         Bill bill = getOrThrow(billId);
         if (bill.getStatus() != BillStatus.FINALIZED) {
             throw new BusinessRuleException("Payments can only be recorded against a FINALIZED bill");
@@ -149,8 +210,22 @@ public class BillService {
         billingAuditService.record("PAYMENT_RECEIVED", "BILL_RECEIPT", receipt.getId(), bill.getId(), actor,
             java.util.Map.of("receiptNumber", receipt.getReceiptNumber(), "amount", amount,
                 "paymentMode", mode, "paidAmountAfter", bill.getPaidAmount(), "balanceAfter", bill.getBalanceAmount()));
-        return receipt;
+        Patient patient = patientRepository.findById(bill.getPatientId())
+            .orElseThrow(() -> ResourceNotFoundException.of("Patient", bill.getPatientId()));
+        String appointmentCode = bill.getAppointmentId() == null ? null
+            : appointmentRepository.findById(bill.getAppointmentId()).map(Appointment::getAppointmentCode).orElse(null);
+        return PaymentReceiptResponse.from(receipt, bill, patient, appointmentCode);
     }
+
+        @Transactional(value = "transactionManager", readOnly = true)
+        public Page<PaymentReceiptResponse> patientReceiptHistory(Long patientId, Pageable pageable) {
+        patientRepository.findById(patientId).orElseThrow(() -> ResourceNotFoundException.of("Patient", patientId));
+        return receiptRepository.findPatientReceiptHistory(patientId, pageable)
+            .map(row -> new PaymentReceiptResponse(row.getReceiptId(), row.getReceiptNumber(), row.getBillId(),
+                row.getBillNumber(), row.getPatientId(), row.getPatientName(), row.getPatientCode(),
+                        row.getPatientPhone(), row.getAppointmentId(), row.getAppointmentCode(), row.getAmount(), row.getPaymentMode(),
+                row.getReceivedAt()));
+        }
 
         public BillRefund refund(Long billId, BigDecimal amount, String reason, AuthenticatedUser actor) {
         Bill bill = getOrThrow(billId);
@@ -182,16 +257,34 @@ public class BillService {
         });
     }
 
-    public Bill cancel(Long id, AuthenticatedUser actor) {
+    public Bill voidBill(Long id, String password, AuthenticatedUser actor) {
+        if (!"HOSPITAL_ADMIN".equals(actor.role())) {
+            throw new BusinessRuleException("Only a hospital admin can void a bill");
+        }
+        AppUser admin = appUserRepository.findById(actor.userId())
+                .filter(AppUser::isActive)
+                .filter(user -> user.getRole() == Role.HOSPITAL_ADMIN)
+                .orElseThrow(() -> new BusinessRuleException("Admin authentication failed"));
+        if (!passwordEncoder.matches(password, admin.getPasswordHash())) {
+            throw new BusinessRuleException("Admin password is incorrect");
+        }
+
         Bill bill = getOrThrow(id);
-        if (bill.getPaidAmount().compareTo(BigDecimal.ZERO) > 0) {
-            throw new BusinessRuleException("Cannot cancel a bill that already has payments - issue a refund first");
+        if (bill.getStatus() == BillStatus.CANCELLED) {
+            throw new BusinessRuleException("This bill is already voided");
         }
         bill.setStatus(BillStatus.CANCELLED);
         bill = billRepository.save(bill);
-        billingAuditService.record("BILL_CANCELLED", "BILL", bill.getId(), bill.getId(), actor,
+        if (bill.getAppointmentId() != null) {
+            appointmentRepository.findById(bill.getAppointmentId()).ifPresent(appointment -> {
+                appointment.setPaid(false);
+                appointmentRepository.save(appointment);
+            });
+        }
+        billingAuditService.record("BILL_VOIDED", "BILL", bill.getId(), bill.getId(), actor,
             java.util.Map.of("billNumber", bill.getBillNumber(), "status", bill.getStatus(),
-                "paidAmount", bill.getPaidAmount(), "balanceAmount", bill.getBalanceAmount()));
+                "paidAmount", bill.getPaidAmount(), "balanceAmount", bill.getBalanceAmount(),
+                "receiptsRetained", true, "voidedBy", actor.userId()));
         return bill;
     }
 
@@ -200,8 +293,51 @@ public class BillService {
         return billRepository.findById(id).orElseThrow(() -> ResourceNotFoundException.of("Bill", id));
     }
 
+        @Transactional(value = "transactionManager", readOnly = true)
+        public BillResponse response(Bill bill) {
+        Patient patient = patientRepository.findById(bill.getPatientId())
+            .orElseThrow(() -> ResourceNotFoundException.of("Patient", bill.getPatientId()));
+        Appointment appointment = bill.getAppointmentId() == null ? null
+            : appointmentRepository.findById(bill.getAppointmentId()).orElse(null);
+        String doctorName = appointment == null ? null : doctorRepository.findDisplayNamesByIds(Set.of(appointment.getDoctorId())).stream()
+            .findFirst().map(DoctorRepository.DoctorDisplayRow::getFullName).orElse(null);
+        return BillResponse.from(bill, patient.getFirstName() + " " + patient.getLastName(),
+            patient.getPatientCode(), patient.getPrimaryPhone(),
+            appointment == null ? null : appointment.getAppointmentCode(), doctorName);
+        }
+
     @Transactional(value = "transactionManager", readOnly = true)
-    public Page<Bill> search(Long patientId, BillStatus status, Pageable pageable) {
-        return billRepository.search(patientId, status, pageable);
+        public Page<BillResponse> search(Long patientId, String query, BillStatus status, Pageable pageable) {
+        String normalizedQuery = query == null || query.isBlank() ? null : query.trim();
+        Page<Bill> bills = billRepository.search(patientId, status, normalizedQuery, pageable);
+        if (bills.isEmpty()) return bills.map(BillResponse::from);
+
+        Set<Long> patientIds = bills.stream().map(Bill::getPatientId).collect(Collectors.toSet());
+        Map<Long, PatientRepository.PatientBillingRow> patientRows = patientRepository.findBillingDetailsByIds(patientIds).stream()
+            .collect(Collectors.toMap(PatientRepository.PatientBillingRow::getId, row -> row));
+        List<Long> appointmentIds = bills.stream().map(Bill::getAppointmentId).filter(java.util.Objects::nonNull).distinct().toList();
+        Map<Long, Long> doctorIdsByAppointment = appointmentIds.isEmpty() ? Map.of()
+            : appointmentRepository.findDoctorIdsByAppointmentIds(appointmentIds).stream()
+                .collect(Collectors.toMap(AppointmentRepository.AppointmentDoctorRow::getId,
+                    AppointmentRepository.AppointmentDoctorRow::getDoctorId));
+            Map<Long, String> appointmentCodes = appointmentIds.isEmpty() ? Map.of()
+                : appointmentRepository.findDoctorIdsByAppointmentIds(appointmentIds).stream()
+                    .collect(Collectors.toMap(AppointmentRepository.AppointmentDoctorRow::getId,
+                        AppointmentRepository.AppointmentDoctorRow::getAppointmentCode));
+        Set<Long> doctorIds = Set.copyOf(doctorIdsByAppointment.values());
+        Map<Long, String> doctorNames = doctorIds.isEmpty() ? Map.of()
+            : doctorRepository.findDisplayNamesByIds(doctorIds).stream()
+                .collect(Collectors.toMap(DoctorRepository.DoctorDisplayRow::getId,
+                    DoctorRepository.DoctorDisplayRow::getFullName));
+
+        return bills.map(bill -> {
+            PatientRepository.PatientBillingRow patient = patientRows.get(bill.getPatientId());
+            String doctorName = bill.getAppointmentId() == null ? null
+                : doctorNames.get(doctorIdsByAppointment.get(bill.getAppointmentId()));
+            return BillResponse.from(bill, patient == null ? null : patient.getFullName(),
+                patient == null ? null : patient.getPatientCode(),
+                    patient == null ? null : patient.getPrimaryPhone(),
+                    appointmentCodes.get(bill.getAppointmentId()), doctorName);
+        });
     }
 }

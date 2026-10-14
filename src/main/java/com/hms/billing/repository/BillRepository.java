@@ -18,12 +18,23 @@ public interface BillRepository extends JpaRepository<Bill, Long> {
 
        boolean existsByAppointmentIdAndStatusNot(Long appointmentId, BillStatus status);
 
+       boolean existsByAppointmentIdAndStatusNotAndIdNot(Long appointmentId, BillStatus status, Long id);
+
     @Query("""
            select b from Bill b
            where (:patientId is null or b.patientId = :patientId)
              and (:status is null or b.status = :status)
+                                           and (:q is null or exists (
+                                                         select p.id from Patient p where p.id = b.patientId and (
+                                                                       lower(concat(p.firstName, ' ', p.lastName)) like lower(concat('%', :q, '%'))
+                                                                       or p.primaryPhone like concat('%', :q, '%')
+                                                                       or lower(p.patientCode) like lower(concat('%', :q, '%'))
+                                                                       or str(p.id) = :q
+                                                         )
+                                           ))
            """)
-    Page<Bill> search(@Param("patientId") Long patientId, @Param("status") BillStatus status, Pageable pageable);
+              Page<Bill> search(@Param("patientId") Long patientId, @Param("status") BillStatus status,
+                                                                             @Param("q") String q, Pageable pageable);
 
     @Query("select coalesce(sum(b.totalAmount), 0) from Bill b where b.status = 'FINALIZED' and b.createdAt between :from and :to")
     java.math.BigDecimal sumRevenueBetween(@Param("from") LocalDateTime from, @Param("to") LocalDateTime to);

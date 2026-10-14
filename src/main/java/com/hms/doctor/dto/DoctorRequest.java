@@ -7,7 +7,7 @@ import java.time.LocalDate;
 
 public record DoctorRequest(
         // Only required when creating a doctor profile for a brand-new user (see DoctorService.create)
-        String username, String email, String password, String fullName, String phone,
+        String username, @Email String email, String password, String fullName, String phone,
         @NotNull Long departmentId,
         @NotBlank String specialization,
         @NotBlank String licenseNumber,

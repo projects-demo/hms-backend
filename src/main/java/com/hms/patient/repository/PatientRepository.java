@@ -10,6 +10,7 @@ import org.springframework.data.repository.query.Param;
 
 import java.util.List;
 import java.util.Optional;
+import java.util.Collection;
 
 public interface PatientRepository extends JpaRepository<Patient, Long> {
 
@@ -38,6 +39,12 @@ public interface PatientRepository extends JpaRepository<Patient, Long> {
            """)
     List<OptionDto> autocomplete(@Param("q") String q, Pageable pageable);
 
+    @Query("select p.id as id, concat(p.firstName, ' ', p.lastName) as fullName from Patient p where p.id in :ids")
+    List<PatientDisplayRow> findDisplayNamesByIds(@Param("ids") Collection<Long> ids);
+
+    @Query("select p.id as id, concat(p.firstName, ' ', p.lastName) as fullName, p.patientCode as patientCode, p.primaryPhone as primaryPhone from Patient p where p.id in :ids")
+    List<PatientBillingRow> findBillingDetailsByIds(@Param("ids") Collection<Long> ids);
+
     @Query("select p.gender as gender, count(p) as patientCount from Patient p group by p.gender")
     List<GenderRow> genderBreakdown();
 
@@ -64,6 +71,18 @@ public interface PatientRepository extends JpaRepository<Patient, Long> {
     interface GenderRow {
         com.hms.patient.entity.Gender getGender();
         Long getPatientCount();
+    }
+
+    interface PatientDisplayRow {
+      Long getId();
+      String getFullName();
+    }
+
+    interface PatientBillingRow {
+      Long getId();
+      String getFullName();
+      String getPatientCode();
+      String getPrimaryPhone();
     }
 
     interface AgeGroupRow {

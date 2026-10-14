@@ -31,7 +31,15 @@ public class BillController {
     @Operation(summary = "Create a draft bill with line items")
     public ApiResponse<BillResponse> create(@Valid @RequestBody CreateBillRequest request,
                                              @AuthenticationPrincipal AuthenticatedUser actor) {
-        return ApiResponse.ok("Bill created", BillResponse.from(billService.create(request, actor)));
+        return ApiResponse.ok("Bill created", billService.response(billService.create(request, actor)));
+    }
+
+    @PutMapping("/{id}")
+    @Transactional("transactionManager")
+    @Operation(summary = "Update a draft bill")
+    public ApiResponse<BillResponse> updateDraft(@PathVariable Long id, @Valid @RequestBody CreateBillRequest request,
+                                                  @AuthenticationPrincipal AuthenticatedUser actor) {
+        return ApiResponse.ok("Draft bill updated", billService.response(billService.updateDraft(id, request, actor)));
     }
 
     @PatchMapping("/{id}/finalize")
@@ -39,15 +47,19 @@ public class BillController {
     @Operation(summary = "Finalize a bill", description = "Applies discount/tax, locks line items, makes it payable.")
     public ApiResponse<BillResponse> finalizeBill(@PathVariable Long id, @RequestBody FinalizeBillRequest request,
                                                    @AuthenticationPrincipal AuthenticatedUser actor) {
-        return ApiResponse.ok(BillResponse.from(billService.finalizeBill(id, request.discountMasterId(), request.taxAmount(), actor)));
+        return ApiResponse.ok(billService.response(billService.finalizeBill(
+            id, request.discountMasterId(), request.taxAmount(), request.paymentMode(), actor)));
     }
 
-    @PostMapping("/{id}/receipts")
-    @Operation(summary = "Record a payment receipt against a finalized bill")
-    public ApiResponse<Void> recordReceipt(@PathVariable Long id, @Valid @RequestBody RecordReceiptRequest request,
-                                            @AuthenticationPrincipal AuthenticatedUser actor) {
-        billService.recordReceipt(id, request.amount(), request.paymentMode(), actor);
-        return ApiResponse.ok("Payment recorded", null);
+    @GetMapping("/patients/{patientId}/receipts")
+    @Transactional(value = "transactionManager", readOnly = true)
+    @Operation(summary = "List a patient's payment receipt history")
+    public ApiResponse<PageResponse<PaymentReceiptResponse>> patientReceiptHistory(
+            @PathVariable Long patientId,
+            @RequestParam(required = false) Integer page,
+            @RequestParam(required = false) Integer size) {
+        var pageable = pageRequestFactory.of(page, size, "receivedAt", "desc");
+        return ApiResponse.ok(PageResponse.of(billService.patientReceiptHistory(patientId, pageable)));
     }
 
     @PostMapping("/{id}/refunds")
@@ -59,18 +71,20 @@ public class BillController {
         return ApiResponse.ok("Refund issued", null);
     }
 
-    @PatchMapping("/{id}/cancel")
+    @PatchMapping("/{id}/void")
+    @PreAuthorize("hasRole('HOSPITAL_ADMIN')")
     @Transactional("transactionManager")
-    @Operation(summary = "Cancel a draft/unpaid bill")
-    public ApiResponse<BillResponse> cancel(@PathVariable Long id, @AuthenticationPrincipal AuthenticatedUser actor) {
-        return ApiResponse.ok(BillResponse.from(billService.cancel(id, actor)));
+    @Operation(summary = "Void a bill after confirming the hospital admin password")
+    public ApiResponse<BillResponse> voidBill(@PathVariable Long id, @Valid @RequestBody VoidBillRequest request,
+                                               @AuthenticationPrincipal AuthenticatedUser actor) {
+        return ApiResponse.ok("Bill voided", billService.response(billService.voidBill(id, request.password(), actor)));
     }
 
     @GetMapping("/{id}")
     @Transactional(value = "transactionManager", readOnly = true)
     @Operation(summary = "Get bill by id")
     public ApiResponse<BillResponse> get(@PathVariable Long id) {
-        return ApiResponse.ok(BillResponse.from(billService.getOrThrow(id)));
+        return ApiResponse.ok(billService.response(billService.getOrThrow(id)));
     }
 
     @GetMapping
@@ -78,9 +92,10 @@ public class BillController {
     @Operation(summary = "Search/list bills (paginated)")
     public ApiResponse<PageResponse<BillResponse>> search(
             @RequestParam(required = false) Long patientId,
+            @RequestParam(required = false) String q,
             @RequestParam(required = false) BillStatus status,
             @RequestParam(required = false) Integer page, @RequestParam(required = false) Integer size) {
         var pageable = pageRequestFactory.of(page, size, "createdAt", "desc");
-        return ApiResponse.ok(PageResponse.of(billService.search(patientId, status, pageable).map(BillResponse::from)));
+        return ApiResponse.ok(PageResponse.of(billService.search(patientId, q, status, pageable)));
     }
 }

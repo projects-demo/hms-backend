@@ -17,6 +17,15 @@ public interface AppointmentRepository extends JpaRepository<Appointment, Long> 
 
     Optional<Appointment> findByAppointmentCode(String code);
 
+       @Query("select a.id as id, a.doctorId as doctorId, a.appointmentCode as appointmentCode from Appointment a where a.id in :appointmentIds")
+       List<AppointmentDoctorRow> findDoctorIdsByAppointmentIds(@Param("appointmentIds") Collection<Long> appointmentIds);
+
+       interface AppointmentDoctorRow {
+              Long getId();
+              Long getDoctorId();
+              String getAppointmentCode();
+       }
+
     @Query("""
            select a from Appointment a
            where (:doctorId is null or a.doctorId = :doctorId)

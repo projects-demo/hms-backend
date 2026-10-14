@@ -30,13 +30,19 @@ public class AppointmentController {
     @Operation(summary = "Book an appointment")
     public ApiResponse<AppointmentResponse> book(@Valid @RequestBody BookAppointmentRequest request,
                                                   @AuthenticationPrincipal AuthenticatedUser actor) {
-        return ApiResponse.ok("Appointment booked", AppointmentResponse.from(appointmentService.book(request, actor.userId())));
+        return ApiResponse.ok("Appointment booked", appointmentService.toResponse(appointmentService.book(request, actor.userId())));
     }
 
     @GetMapping("/{id}")
     @Operation(summary = "Get appointment by id")
     public ApiResponse<AppointmentResponse> get(@PathVariable Long id) {
-        return ApiResponse.ok(AppointmentResponse.from(appointmentService.getOrThrow(id)));
+        return ApiResponse.ok(appointmentService.getResponseOrThrow(id));
+    }
+
+    @GetMapping("/by-code/{appointmentCode}")
+    @Operation(summary = "Get appointment by appointment code")
+    public ApiResponse<AppointmentResponse> getByCode(@PathVariable String appointmentCode) {
+        return ApiResponse.ok(appointmentService.getResponseByCodeOrThrow(appointmentCode));
     }
 
     @GetMapping
@@ -56,7 +62,7 @@ public class AppointmentController {
     @PatchMapping("/{id}/status")
     @Operation(summary = "Transition appointment status", description = "SCHEDULED -> CHECKED_IN -> IN_CONSULTATION -> COMPLETED, or CANCELLED/NO_SHOW")
     public ApiResponse<AppointmentResponse> changeStatus(@PathVariable Long id, @RequestParam AppointmentStatus status) {
-        return ApiResponse.ok(AppointmentResponse.from(appointmentService.changeStatus(id, status)));
+        return ApiResponse.ok(appointmentService.toResponse(appointmentService.changeStatus(id, status)));
     }
 
     @PostMapping("/{id}/payments")

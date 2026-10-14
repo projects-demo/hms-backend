@@ -36,8 +36,8 @@ public class DoctorService {
 
     /** Creates the login (AppUser, role=DOCTOR) and the Doctor profile together, atomically. */
     public Doctor create(DoctorRequest r) {
-        if (r.username() == null || r.password() == null || r.fullName() == null) {
-            throw new BusinessRuleException("username, password and fullName are required to create a new doctor");
+        if (r.username() == null || r.password() == null || r.fullName() == null || r.email() == null || r.email().isBlank()) {
+            throw new BusinessRuleException("username, email, password and fullName are required to create a new doctor");
         }
         if (appUserRepository.existsByUsername(r.username())) {
             throw new DuplicateResourceException("Username '" + r.username() + "' is already taken");

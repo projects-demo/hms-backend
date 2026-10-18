@@ -6,6 +6,7 @@ import com.hms.appointment.entity.*;
 import com.hms.appointment.repository.AppointmentPaymentRepository;
 import com.hms.appointment.repository.AppointmentRepository;
 import com.hms.appointment.repository.AppointmentSlotRepository;
+import com.hms.billing.service.BillService;
 import com.hms.common.codeseq.CodeGeneratorService;
 import com.hms.common.exception.BusinessRuleException;
 import com.hms.common.exception.ResourceNotFoundException;
@@ -14,6 +15,7 @@ import com.hms.doctor.entity.DoctorAvailability;
 import com.hms.doctor.repository.DoctorAvailabilityRepository;
 import com.hms.doctor.repository.DoctorRepository;
 import com.hms.patient.repository.PatientRepository;
+import com.hms.security.jwt.AuthenticatedUser;
 import lombok.RequiredArgsConstructor;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
@@ -40,6 +42,7 @@ public class AppointmentService {
     private final DoctorRepository doctorRepository;
     private final PatientRepository patientRepository;
     private final CodeGeneratorService codeGeneratorService;
+    private final BillService billService;
 
     /** Materializes bookable slots for one doctor/date from their weekly availability template. Idempotent. */
     public List<AppointmentSlot> generateSlotsForDate(Long doctorId, LocalDate date) {
@@ -79,7 +82,16 @@ public class AppointmentService {
         return slotRepository.findAvailable(doctorId, date, SlotStatus.AVAILABLE);
     }
 
+    public Appointment book(BookAppointmentRequest r, AuthenticatedUser actor) {
+        Long actorUserId = actor != null ? actor.userId() : null;
+        return bookInternal(r, actorUserId, actor);
+    }
+
     public Appointment book(BookAppointmentRequest r, Long actorUserId) {
+        return bookInternal(r, actorUserId, null);
+    }
+
+    private Appointment bookInternal(BookAppointmentRequest r, Long actorUserId, AuthenticatedUser actor) {
         Doctor doctor = doctorRepository.findById(r.doctorId())
                 .orElseThrow(() -> ResourceNotFoundException.of("Doctor", r.doctorId()));
         patientRepository.findById(r.patientId())
@@ -113,11 +125,20 @@ public class AppointmentService {
         appt.setFeeAmount(r.freeVisit() ? java.math.BigDecimal.ZERO : doctor.getConsultationFee());
         appt.setNotes(r.notes());
         appt.setCreatedBy(actorUserId);
-        return appointmentRepository.save(appt);
+        appt = appointmentRepository.save(appt);
+
+        if (r.freeVisit()) {
+            billService.generateFreeVisitBill(appt, actor);
+        }
+
+        return appt;
     }
 
     public Appointment changeStatus(Long id, AppointmentStatus newStatus) {
         Appointment appt = getOrThrow(id);
+        if (appt.isFreeVisit()) {
+            billService.generateFreeVisitBill(appt, null);
+        }
         if (newStatus == AppointmentStatus.CHECKED_IN && !appt.isPaid() && !appt.isFreeVisit()) {
             throw new BusinessRuleException("Appointment cannot be confirmed until its bill is paid");
         }

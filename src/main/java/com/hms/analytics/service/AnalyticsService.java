@@ -127,9 +127,10 @@ public class AnalyticsService {
                 .map(r -> new RevenueBreakdownResponse.PaymentModeSlice(r.getMode().name(), r.getAmount(), r.getTxnCount()))
                 .toList();
         long transactionCount = paymentModes.stream().mapToLong(RevenueBreakdownResponse.PaymentModeSlice::count).sum();
+        long freeBillCount = totals.getFreeBillCount() == null ? 0L : totals.getFreeBillCount();
 
         return new RevenueBreakdownResponse(from, to, opd, ipd, pharmacy, total, subtotal, discount, tax, net,
-                totals.getBillCount(), transactionCount, paymentModes);
+                totals.getBillCount(), transactionCount, paymentModes, freeBillCount);
     }
 
     /** Patient population breakdown by gender and age band - the "Demographics" report. */

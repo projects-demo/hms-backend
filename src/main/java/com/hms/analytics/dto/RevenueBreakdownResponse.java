@@ -9,7 +9,8 @@ public record RevenueBreakdownResponse(
         BigDecimal opdRevenue, BigDecimal ipdRevenue, BigDecimal pharmacyRevenue, BigDecimal totalRevenue,
         BigDecimal subtotalAmount, BigDecimal discountTotal, BigDecimal taxTotal, BigDecimal netRevenue,
         long billCount, long transactionCount,
-        List<PaymentModeSlice> paymentModeBreakdown
+        List<PaymentModeSlice> paymentModeBreakdown,
+        long freeBillCount
 ) {
     public record PaymentModeSlice(String mode, BigDecimal amount, long count) {}
 }

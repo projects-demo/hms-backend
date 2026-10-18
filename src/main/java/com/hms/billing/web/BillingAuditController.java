@@ -24,9 +24,10 @@ public class BillingAuditController {
     @GetMapping
     public ApiResponse<PageResponse<BillingAuditLog>> list(
             @RequestParam(required = false) Long billId,
+            @RequestParam(required = false) String q,
             @RequestParam(required = false) Integer page,
             @RequestParam(required = false) Integer size) {
         var pageable = pageRequestFactory.of(page, size, "createdAt", "desc");
-        return ApiResponse.ok(PageResponse.of(billingAuditService.search(billId, pageable)));
+        return ApiResponse.ok(PageResponse.of(billingAuditService.search(billId, q, pageable)));
     }
 }

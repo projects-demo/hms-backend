@@ -28,6 +28,12 @@ public class BillingAuditLog {
     @Column(name = "bill_id")
     private Long billId;
 
+    @Column(name = "patient_name", length = 150)
+    private String patientName;
+
+    @Column(name = "mobile_number", length = 30)
+    private String mobileNumber;
+
     @Column(name = "actor_user_id", nullable = false)
     private Long actorUserId;
 
@@ -45,4 +51,12 @@ public class BillingAuditLog {
 
     @Column(name = "created_at", nullable = false, insertable = false, updatable = false)
     private LocalDateTime createdAt;
+
+    public String getPatientPhone() {
+        return mobileNumber;
+    }
+
+    public void setPatientPhone(String patientPhone) {
+        this.mobileNumber = patientPhone;
+    }
 }

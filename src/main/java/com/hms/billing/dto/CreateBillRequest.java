@@ -12,6 +12,7 @@ public record CreateBillRequest(
         Long admissionId,
         Long appointmentId,
         @NotNull BillType billType,
+        String comments,
         @NotEmpty @Valid List<BillItemRequest> items
 ) {
     public record BillItemRequest(Long chargeMasterId, @jakarta.validation.constraints.NotBlank String description,

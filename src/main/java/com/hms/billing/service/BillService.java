@@ -53,7 +53,7 @@ public class BillService {
     private final PasswordEncoder passwordEncoder;
 
     public Bill create(CreateBillRequest r, AuthenticatedUser actor) {
-        patientRepository.findById(r.patientId()).orElseThrow(() -> ResourceNotFoundException.of("Patient", r.patientId()));
+        Patient patient = patientRepository.findById(r.patientId()).orElseThrow(() -> ResourceNotFoundException.of("Patient", r.patientId()));
         if (r.appointmentId() != null) {
             Appointment appointment = appointmentRepository.findById(r.appointmentId())
                     .orElseThrow(() -> ResourceNotFoundException.of("Appointment", r.appointmentId()));
@@ -72,14 +72,18 @@ public class BillService {
         bill.setAppointmentId(r.appointmentId());
         bill.setBillType(r.billType());
         bill.setStatus(BillStatus.DRAFT);
+        bill.setComments(r.comments());
         bill.setCreatedBy(actor.userId());
 
         addItems(bill, r.items());
         bill.recalculateTotals();
         bill = billRepository.save(bill);
-        billingAuditService.record("BILL_CREATED", "BILL", bill.getId(), bill.getId(), actor, java.util.Map.of(
+        billingAuditService.record("BILL_CREATED", "BILL", bill.getId(), bill.getId(),
+                patient.getFirstName() + " " + patient.getLastName(), patient.getPrimaryPhone(),
+                actor, java.util.Map.of(
                 "billNumber", bill.getBillNumber(), "patientId", bill.getPatientId(), "billType", bill.getBillType(),
-                "subtotalAmount", bill.getSubtotalAmount(), "items", bill.getItems().stream().map(item -> java.util.Map.of(
+                "subtotalAmount", bill.getSubtotalAmount(), "comments", bill.getComments() == null ? "" : bill.getComments(),
+                "items", bill.getItems().stream().map(item -> java.util.Map.of(
                         "description", item.getDescription(), "quantity", item.getQuantity(),
                         "unitPrice", item.getUnitPrice(), "amount", item.getAmount())).toList()));
         return bill;
@@ -90,7 +94,7 @@ public class BillService {
         if (bill.getStatus() != BillStatus.DRAFT) {
             throw new BusinessRuleException("Only a DRAFT bill can be edited");
         }
-        patientRepository.findById(request.patientId())
+        Patient patient = patientRepository.findById(request.patientId())
                 .orElseThrow(() -> ResourceNotFoundException.of("Patient", request.patientId()));
         if (request.appointmentId() != null) {
             Appointment appointment = appointmentRepository.findById(request.appointmentId())
@@ -108,13 +112,17 @@ public class BillService {
         bill.setAdmissionId(request.admissionId());
         bill.setAppointmentId(request.appointmentId());
         bill.setBillType(request.billType());
+        bill.setComments(request.comments());
         bill.getItems().clear();
         addItems(bill, request.items());
         bill.recalculateTotals();
         bill = billRepository.save(bill);
-        billingAuditService.record("BILL_UPDATED", "BILL", bill.getId(), bill.getId(), actor, java.util.Map.of(
+        billingAuditService.record("BILL_UPDATED", "BILL", bill.getId(), bill.getId(),
+                patient.getFirstName() + " " + patient.getLastName(), patient.getPrimaryPhone(),
+                actor, java.util.Map.of(
                 "billNumber", bill.getBillNumber(), "patientId", bill.getPatientId(),
-                "subtotalAmount", bill.getSubtotalAmount(), "items", bill.getItems().stream().map(item -> java.util.Map.of(
+                "subtotalAmount", bill.getSubtotalAmount(), "comments", bill.getComments() == null ? "" : bill.getComments(),
+                "items", bill.getItems().stream().map(item -> java.util.Map.of(
                         "description", item.getDescription(), "quantity", item.getQuantity(),
                         "unitPrice", item.getUnitPrice(), "amount", item.getAmount())).toList()));
         return bill;
@@ -131,7 +139,11 @@ public class BillService {
             item.setChargeMasterId(chargeMaster == null ? null : chargeMaster.getId());
             item.setDescription(chargeMaster == null ? itemReq.description() : chargeMaster.getName());
             item.setQuantity(itemReq.quantity());
-            BigDecimal unitPrice = chargeMaster == null ? itemReq.unitPrice() : chargeMaster.getDefaultPrice();
+            // Use the caller-supplied unitPrice; fall back to the charge-master default only when
+            // the caller explicitly sends 0 (i.e. they did not supply a price themselves).
+            BigDecimal unitPrice = (itemReq.unitPrice() != null && itemReq.unitPrice().compareTo(BigDecimal.ZERO) > 0)
+                    ? itemReq.unitPrice()
+                    : (chargeMaster != null ? chargeMaster.getDefaultPrice() : BigDecimal.ZERO);
             item.setUnitPrice(unitPrice);
             item.setAmount(unitPrice.multiply(BigDecimal.valueOf(itemReq.quantity())));
             bill.addItem(item);
@@ -183,6 +195,7 @@ public class BillService {
                 "discountPercentage", bill.getDiscountPercentage() == null ? BigDecimal.ZERO : bill.getDiscountPercentage(),
                 "discountAmount", bill.getDiscountAmount(), "taxAmount", bill.getTaxAmount(),
                 "totalAmount", bill.getTotalAmount(), "paymentMode", paymentMode == null ? "NONE" : paymentMode.name(),
+                "comments", bill.getComments() == null ? "" : bill.getComments(),
                 "status", bill.getStatus()));
         return bill;
     }
@@ -207,11 +220,12 @@ public class BillService {
         bill.recalculateTotals();
         billRepository.save(bill);
         syncAppointmentPaidStatus(bill);
-        billingAuditService.record("PAYMENT_RECEIVED", "BILL_RECEIPT", receipt.getId(), bill.getId(), actor,
-            java.util.Map.of("receiptNumber", receipt.getReceiptNumber(), "amount", amount,
-                "paymentMode", mode, "paidAmountAfter", bill.getPaidAmount(), "balanceAfter", bill.getBalanceAmount()));
         Patient patient = patientRepository.findById(bill.getPatientId())
             .orElseThrow(() -> ResourceNotFoundException.of("Patient", bill.getPatientId()));
+        billingAuditService.record("PAYMENT_RECEIVED", "BILL_RECEIPT", receipt.getId(), bill.getId(),
+            patient.getFirstName() + " " + patient.getLastName(), patient.getPrimaryPhone(),
+            actor, java.util.Map.of("receiptNumber", receipt.getReceiptNumber(), "amount", amount,
+                "paymentMode", mode, "paidAmountAfter", bill.getPaidAmount(), "balanceAfter", bill.getBalanceAmount()));
         String appointmentCode = bill.getAppointmentId() == null ? null
             : appointmentRepository.findById(bill.getAppointmentId()).map(Appointment::getAppointmentCode).orElse(null);
         return PaymentReceiptResponse.from(receipt, bill, patient, appointmentCode);
@@ -255,6 +269,85 @@ public class BillService {
             appointment.setPaid(bill.getBalanceAmount().compareTo(BigDecimal.ZERO) == 0);
             appointmentRepository.save(appointment);
         });
+    }
+
+    public Bill generateFreeVisitBill(Appointment appointment, AuthenticatedUser actor) {
+        if (appointment == null || appointment.getId() == null) {
+            return null;
+        }
+        if (billRepository.existsByAppointmentIdAndStatusNot(appointment.getId(), BillStatus.CANCELLED)) {
+            return billRepository.findFirstByAppointmentIdAndStatusNot(appointment.getId(), BillStatus.CANCELLED).orElse(null);
+        }
+
+        Bill bill = new Bill();
+        bill.setBillNumber(codeGeneratorService.next("BILL", "BL", 7));
+        bill.setPatientId(appointment.getPatientId());
+        bill.setAppointmentId(appointment.getId());
+        bill.setBillType(BillType.OPD);
+        bill.setStatus(BillStatus.FINALIZED);
+        bill.setSubtotalAmount(BigDecimal.ZERO);
+        bill.setDiscountAmount(BigDecimal.ZERO);
+        bill.setTaxAmount(BigDecimal.ZERO);
+        bill.setTotalAmount(BigDecimal.ZERO);
+        bill.setPaidAmount(BigDecimal.ZERO);
+        bill.setBalanceAmount(BigDecimal.ZERO);
+        bill.setComments("free visit");
+        bill.setCreatedBy(actor != null ? actor.userId() : appointment.getCreatedBy());
+        bill.setFinalizedAt(java.time.LocalDateTime.now());
+
+        BillItem item = new BillItem();
+        item.setDescription("Consultation (Free Visit)");
+        item.setQuantity(1);
+        item.setUnitPrice(BigDecimal.ZERO);
+        item.setAmount(BigDecimal.ZERO);
+        bill.addItem(item);
+
+        bill = billRepository.save(bill);
+
+        AuthenticatedUser auditActor = actor;
+        if (auditActor == null && appointment.getCreatedBy() != null) {
+            auditActor = appUserRepository.findById(appointment.getCreatedBy())
+                    .map(u -> new AuthenticatedUser(u.getId(), u.getUsername(), u.getFullName(), u.getRole().name(), null, null, false))
+                    .orElse(null);
+        }
+
+        Patient patient = patientRepository.findById(appointment.getPatientId()).orElse(null);
+        String patientName = patient != null ? patient.getFirstName() + " " + patient.getLastName() : null;
+        String mobileNumber = patient != null ? patient.getPrimaryPhone() : null;
+
+        if (auditActor != null) {
+            billingAuditService.record("BILL_CREATED", "BILL", bill.getId(), bill.getId(),
+                    patientName, mobileNumber, auditActor, java.util.Map.of(
+                    "billNumber", bill.getBillNumber(),
+                    "patientId", bill.getPatientId(),
+                    "appointmentId", bill.getAppointmentId(),
+                    "billType", bill.getBillType(),
+                    "subtotalAmount", bill.getSubtotalAmount(),
+                    "comments", bill.getComments(),
+                    "items", java.util.List.of(java.util.Map.of(
+                            "description", item.getDescription(),
+                            "quantity", item.getQuantity(),
+                            "unitPrice", item.getUnitPrice(),
+                            "amount", item.getAmount()
+                    ))
+            ));
+            billingAuditService.record("BILL_FINALIZED", "BILL", bill.getId(), bill.getId(),
+                    patientName, mobileNumber, auditActor, java.util.Map.of(
+                    "previousTotal", BigDecimal.ZERO,
+                    "previousDiscount", BigDecimal.ZERO,
+                    "discountMasterId", "none",
+                    "discountPercentage", BigDecimal.ZERO,
+                    "discountAmount", BigDecimal.ZERO,
+                    "taxAmount", BigDecimal.ZERO,
+                    "totalAmount", BigDecimal.ZERO,
+                    "paymentMode", "FREE_VISIT",
+                    "status", bill.getStatus(),
+                    "comments", bill.getComments()
+            ));
+        }
+
+        syncAppointmentPaidStatus(bill);
+        return bill;
     }
 
     public Bill voidBill(Long id, String password, AuthenticatedUser actor) {

@@ -1,0 +1,3 @@
+ALTER TABLE bills
+    ADD COLUMN comments VARCHAR(500) NULL;
+

@@ -67,6 +67,9 @@ public class Bill extends AuditableEntity {
     @Column(name = "created_by")
     private Long createdBy;
 
+    @Column(name = "comments", length = 500)
+    private String comments;
+
     @Column(name = "finalized_at")
     private LocalDateTime finalizedAt;
 

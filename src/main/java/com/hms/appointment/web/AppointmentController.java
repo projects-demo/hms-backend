@@ -30,7 +30,7 @@ public class AppointmentController {
     @Operation(summary = "Book an appointment")
     public ApiResponse<AppointmentResponse> book(@Valid @RequestBody BookAppointmentRequest request,
                                                   @AuthenticationPrincipal AuthenticatedUser actor) {
-        return ApiResponse.ok("Appointment booked", appointmentService.toResponse(appointmentService.book(request, actor.userId())));
+        return ApiResponse.ok("Appointment booked", appointmentService.toResponse(appointmentService.book(request, actor)));
     }
 
     @GetMapping("/{id}")

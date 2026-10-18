@@ -16,25 +16,31 @@ public interface BillRepository extends JpaRepository<Bill, Long> {
 
     Optional<Bill> findByBillNumber(String billNumber);
 
-       boolean existsByAppointmentIdAndStatusNot(Long appointmentId, BillStatus status);
+    Optional<Bill> findByAppointmentId(Long appointmentId);
 
-       boolean existsByAppointmentIdAndStatusNotAndIdNot(Long appointmentId, BillStatus status, Long id);
+    Optional<Bill> findFirstByAppointmentIdAndStatusNot(Long appointmentId, BillStatus status);
+
+    boolean existsByAppointmentIdAndStatusNot(Long appointmentId, BillStatus status);
+
+    boolean existsByAppointmentIdAndStatusNotAndIdNot(Long appointmentId, BillStatus status, Long id);
 
     @Query("""
            select b from Bill b
            where (:patientId is null or b.patientId = :patientId)
              and (:status is null or b.status = :status)
-                                           and (:q is null or exists (
-                                                         select p.id from Patient p where p.id = b.patientId and (
-                                                                       lower(concat(p.firstName, ' ', p.lastName)) like lower(concat('%', :q, '%'))
-                                                                       or p.primaryPhone like concat('%', :q, '%')
-                                                                       or lower(p.patientCode) like lower(concat('%', :q, '%'))
-                                                                       or str(p.id) = :q
-                                                         )
-                                           ))
+             and (:q is null or lower(b.billNumber) like lower(concat('%', :q, '%'))
+                             or lower(b.comments) like lower(concat('%', :q, '%'))
+                             or exists (
+                                   select p.id from Patient p where p.id = b.patientId and (
+                                         lower(concat(p.firstName, ' ', p.lastName)) like lower(concat('%', :q, '%'))
+                                         or p.primaryPhone like concat('%', :q, '%')
+                                         or lower(p.patientCode) like lower(concat('%', :q, '%'))
+                                         or str(p.id) = :q
+                                   )
+                             ))
            """)
-              Page<Bill> search(@Param("patientId") Long patientId, @Param("status") BillStatus status,
-                                                                             @Param("q") String q, Pageable pageable);
+    Page<Bill> search(@Param("patientId") Long patientId, @Param("status") BillStatus status,
+                      @Param("q") String q, Pageable pageable);
 
     @Query("select coalesce(sum(b.totalAmount), 0) from Bill b where b.status = 'FINALIZED' and b.createdAt between :from and :to")
     java.math.BigDecimal sumRevenueBetween(@Param("from") LocalDateTime from, @Param("to") LocalDateTime to);
@@ -66,7 +72,8 @@ public interface BillRepository extends JpaRepository<Bill, Long> {
            select coalesce(sum(discount_amount), 0) as discountTotal,
                   coalesce(sum(tax_amount), 0) as taxTotal,
                   coalesce(sum(subtotal_amount), 0) as subtotalTotal,
-                  count(*) as billCount
+                  count(*) as billCount,
+                  coalesce(sum(case when comments = 'free visit' or comments like '%free visit%' then 1 else 0 end), 0) as freeBillCount
            from bills
            where status = 'FINALIZED' and created_at between :from and :to
            """, nativeQuery = true)
@@ -82,5 +89,6 @@ public interface BillRepository extends JpaRepository<Bill, Long> {
         java.math.BigDecimal getTaxTotal();
         java.math.BigDecimal getSubtotalTotal();
         Long getBillCount();
+        Long getFreeBillCount();
     }
 }

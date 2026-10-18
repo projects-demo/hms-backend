@@ -57,7 +57,7 @@ public class PatientController {
             @RequestParam(required = false) String q,
             @RequestParam(required = false) Integer page,
             @RequestParam(required = false) Integer size) {
-        var pageable = pageRequestFactory.of(page, size, "lastName", "asc");
+        var pageable = pageRequestFactory.of(page, size, "createdAt", "desc");
         return ApiResponse.ok(PageResponse.of(patientService.search(q, pageable).map(PatientResponse::from)));
     }
 

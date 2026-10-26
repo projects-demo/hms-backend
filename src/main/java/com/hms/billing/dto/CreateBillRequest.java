@@ -1,5 +1,6 @@
 package com.hms.billing.dto;
 
+import com.hms.billing.entity.AdvisorType;
 import com.hms.billing.entity.BillType;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.NotEmpty;
@@ -13,6 +14,12 @@ public record CreateBillRequest(
         Long appointmentId,
         @NotNull BillType billType,
         String comments,
+        /** Who referred/advised the patient: INTERNAL_DOCTOR | SELF | EXTERNAL_DOCTOR */
+        AdvisorType advisorType,
+        /** When advisorType=INTERNAL_DOCTOR, the id of the referring doctor. */
+        Long advisorDoctorId,
+        /** When advisorType=EXTERNAL_DOCTOR, the free-text name of the external doctor. */
+        String externalAdvisorName,
         @NotEmpty @Valid List<BillItemRequest> items
 ) {
     public record BillItemRequest(Long chargeMasterId, @jakarta.validation.constraints.NotBlank String description,

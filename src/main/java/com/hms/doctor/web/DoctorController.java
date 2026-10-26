@@ -100,6 +100,26 @@ public class DoctorController {
         return ApiResponse.ok("Doctor deactivated", null);
     }
 
+    /** Reactivate a previously deactivated or on-leave doctor (item 15). */
+    @PatchMapping("/{id}/reactivate")
+    @PreAuthorize("hasRole('HOSPITAL_ADMIN')")
+    @Operation(summary = "Reactivate a doctor")
+    public ApiResponse<Void> reactivate(@PathVariable Long id) {
+        doctorService.reactivate(id);
+        return ApiResponse.ok("Doctor reactivated", null);
+    }
+
+    /** Set a leave date-range (item 16). Doctor is deactivated until leaveEndDate. */
+    @PatchMapping("/{id}/set-leave")
+    @PreAuthorize("hasRole('HOSPITAL_ADMIN')")
+    @Operation(summary = "Set doctor leave date range", description = "Doctor is marked ON_LEAVE and inactive; auto-reactivated after leaveEndDate.")
+    public ApiResponse<Void> setLeave(@PathVariable Long id,
+            @RequestParam @org.springframework.format.annotation.DateTimeFormat(iso = org.springframework.format.annotation.DateTimeFormat.ISO.DATE) java.time.LocalDate startDate,
+            @RequestParam @org.springframework.format.annotation.DateTimeFormat(iso = org.springframework.format.annotation.DateTimeFormat.ISO.DATE) java.time.LocalDate endDate) {
+        doctorService.setLeave(id, startDate, endDate);
+        return ApiResponse.ok("Leave set", null);
+    }
+
     private DoctorResponse toResponse(Doctor doctor) {
         String fullName = appUserRepository.findById(doctor.getUserId())
                 .map(u -> u.getFullName())

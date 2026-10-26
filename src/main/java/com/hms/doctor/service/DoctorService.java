@@ -119,6 +119,45 @@ public class DoctorService {
         doctorRepository.save(doctor);
     }
 
+    /** Reactivate a previously deactivated doctor (item 15). */
+    public void reactivate(Long id) {
+        Doctor doctor = getOrThrow(id);
+        doctor.setActive(true);
+        doctor.setAvailabilityStatus(com.hms.doctor.entity.AvailabilityStatus.AVAILABLE);
+        doctor.setLeaveStartDate(null);
+        doctor.setLeaveEndDate(null);
+        doctorRepository.save(doctor);
+    }
+
+    /**
+     * Set a temporary leave date-range for a doctor (item 16).
+     * Marks the doctor ON_LEAVE and inactive for the period;
+     * the nightly scheduled job will auto-reactivate when leaveEndDate passes.
+     */
+    public void setLeave(Long id, java.time.LocalDate startDate, java.time.LocalDate endDate) {
+        Doctor doctor = getOrThrow(id);
+        doctor.setLeaveStartDate(startDate);
+        doctor.setLeaveEndDate(endDate);
+        doctor.setActive(false);
+        doctor.setAvailabilityStatus(com.hms.doctor.entity.AvailabilityStatus.ON_LEAVE);
+        doctorRepository.save(doctor);
+    }
+
+    /** Called by the nightly scheduler to auto-reactivate doctors whose leave has ended (item 16). */
+    public void checkAndReactivateExpiredLeaves() {
+        java.time.LocalDate today = java.time.LocalDate.now();
+        doctorRepository.findAll().stream()
+            .filter(d -> d.getLeaveEndDate() != null && !today.isBefore(d.getLeaveEndDate())
+                         && d.getAvailabilityStatus() == com.hms.doctor.entity.AvailabilityStatus.ON_LEAVE)
+            .forEach(d -> {
+                d.setActive(true);
+                d.setAvailabilityStatus(com.hms.doctor.entity.AvailabilityStatus.AVAILABLE);
+                d.setLeaveStartDate(null);
+                d.setLeaveEndDate(null);
+                doctorRepository.save(d);
+            });
+    }
+
     private void apply(Doctor doctor, DoctorRequest r) {
         doctor.setSpecialization(r.specialization());
         doctor.setLicenseNumber(r.licenseNumber());

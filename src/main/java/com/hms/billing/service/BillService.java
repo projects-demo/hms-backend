@@ -74,6 +74,12 @@ public class BillService {
         bill.setStatus(BillStatus.DRAFT);
         bill.setComments(r.comments());
         bill.setCreatedBy(actor.userId());
+        // Advisor selection (item 3)
+        if (r.advisorType() != null) {
+            bill.setAdvisorType(r.advisorType());
+            bill.setAdvisorDoctorId(r.advisorDoctorId());
+            bill.setExternalAdvisorName(r.externalAdvisorName());
+        }
 
         addItems(bill, r.items());
         bill.recalculateTotals();

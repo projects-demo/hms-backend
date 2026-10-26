@@ -70,6 +70,18 @@ public class Bill extends AuditableEntity {
     @Column(name = "comments", length = 500)
     private String comments;
 
+    @Enumerated(EnumType.STRING)
+    @Column(name = "advisor_type", length = 20)
+    private AdvisorType advisorType;
+
+    /** For EXTERNAL_DOCTOR advisors - free-text name of the external doctor. */
+    @Column(name = "external_advisor_name", length = 150)
+    private String externalAdvisorName;
+
+    /** For INTERNAL_DOCTOR advisors - the doctor id. */
+    @Column(name = "advisor_doctor_id")
+    private Long advisorDoctorId;
+
     @Column(name = "finalized_at")
     private LocalDateTime finalizedAt;
 

@@ -61,4 +61,12 @@ public class Doctor extends AuditableEntity {
 
     @Column(name = "is_active", nullable = false)
     private boolean active = true;
+
+    /** Leave start date — when set, doctor is marked ON_LEAVE until leaveEndDate (item 16). */
+    @Column(name = "leave_start_date")
+    private LocalDate leaveStartDate;
+
+    /** Leave end date — after this date the doctor is automatically reactivated (item 16). */
+    @Column(name = "leave_end_date")
+    private LocalDate leaveEndDate;
 }

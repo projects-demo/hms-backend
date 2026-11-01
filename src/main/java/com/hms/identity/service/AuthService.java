@@ -8,6 +8,7 @@ import com.hms.identity.entity.AppUser;
 import com.hms.identity.entity.PasswordResetToken;
 import com.hms.identity.repository.AppUserRepository;
 import com.hms.identity.repository.PasswordResetTokenRepository;
+import com.hms.doctor.repository.DoctorRepository;
 import com.hms.security.jwt.JwtService;
 import com.hms.tenancy.master.entity.Tenant;
 import com.hms.tenancy.master.service.TenantLookupService;
@@ -19,7 +20,6 @@ import org.springframework.mail.MailException;
 import org.springframework.security.authentication.BadCredentialsException;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
-import org.springframework.transaction.annotation.Transactional;
 
 import java.time.LocalDateTime;
 import java.nio.charset.StandardCharsets;
@@ -50,8 +50,8 @@ public class AuthService {
     private final JwtService jwtService;
     private final PasswordResetTokenRepository passwordResetTokenRepository;
     private final PasswordResetEmailService passwordResetEmailService;
+    private final DoctorRepository doctorRepository;
 
-    //@Transactional("transactionManager")
     public LoginResponse login(LoginRequest request) {
         Tenant tenant = tenantLookupService.resolveActiveTenant(request.tenantCode());
         TenantContext.setSchema(tenant.getSchemaName());
@@ -78,9 +78,12 @@ public class AuthService {
             String access = jwtService.generateAccessToken(user.getUsername(), claims);
             String refresh = jwtService.generateRefreshToken(user.getUsername(), claims);
 
+            Long doctorId = "DOCTOR".equals(user.getRole().name())
+                    ? doctorRepository.findByUserId(user.getId()).map(d -> d.getId()).orElse(null)
+                    : null;
             return new LoginResponse(access, refresh, jwtService.getAccessTtlMinutes() * 60,
                     user.getId(), user.getUsername(), user.getFullName(), user.getRole().name(),
-                    tenant.getTenantCode(), tenant.getHospitalName());
+                    tenant.getTenantCode(), tenant.getHospitalName(), doctorId);
         } finally {
             TenantContext.clear();
         }
@@ -104,7 +107,7 @@ public class AuthService {
         String newRefresh = jwtService.generateRefreshToken(username, newClaims);
         return new LoginResponse(access, newRefresh, jwtService.getAccessTtlMinutes() * 60,
                 claims.get("userId", Long.class), username, claims.get("fullName", String.class),
-                claims.get("role", String.class), claims.get("tenantCode", String.class), null);
+                claims.get("role", String.class), claims.get("tenantCode", String.class), null, null);
     }
 
     /** Always responds successfully to avoid revealing whether an email belongs to an account. */

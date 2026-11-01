@@ -119,6 +119,15 @@ public class BillService {
         bill.setAppointmentId(request.appointmentId());
         bill.setBillType(request.billType());
         bill.setComments(request.comments());
+        if (request.advisorType() != null) {
+            bill.setAdvisorType(request.advisorType());
+            bill.setAdvisorDoctorId(request.advisorDoctorId());
+            bill.setExternalAdvisorName(request.externalAdvisorName());
+        } else {
+            bill.setAdvisorType(null);
+            bill.setAdvisorDoctorId(null);
+            bill.setExternalAdvisorName(null);
+        }
         bill.getItems().clear();
         addItems(bill, request.items());
         bill.recalculateTotals();
@@ -145,11 +154,30 @@ public class BillService {
             item.setChargeMasterId(chargeMaster == null ? null : chargeMaster.getId());
             item.setDescription(chargeMaster == null ? itemReq.description() : chargeMaster.getName());
             item.setQuantity(itemReq.quantity());
-            // Use the caller-supplied unitPrice; fall back to the charge-master default only when
-            // the caller explicitly sends 0 (i.e. they did not supply a price themselves).
-            BigDecimal unitPrice = (itemReq.unitPrice() != null && itemReq.unitPrice().compareTo(BigDecimal.ZERO) > 0)
-                    ? itemReq.unitPrice()
-                    : (chargeMaster != null ? chargeMaster.getDefaultPrice() : BigDecimal.ZERO);
+
+            BigDecimal unitPrice;
+            if (chargeMaster == null
+                    && itemReq.description() != null
+                    && itemReq.description().toLowerCase().startsWith("opd consultation")) {
+                if (bill.getAdvisorType() == com.hms.billing.entity.AdvisorType.INTERNAL_DOCTOR
+                        && bill.getAdvisorDoctorId() != null) {
+                    var advisorDoctor = doctorRepository.findById(bill.getAdvisorDoctorId())
+                            .orElseThrow(() -> ResourceNotFoundException.of("Doctor", bill.getAdvisorDoctorId()));
+                    unitPrice = advisorDoctor.getConsultationFee();
+                } else {
+                    unitPrice = itemReq.unitPrice() != null ? itemReq.unitPrice() : BigDecimal.ZERO;
+                }
+                if (bill.getAppointmentId() != null) {
+                    Appointment appointment = appointmentRepository.findById(bill.getAppointmentId()).orElse(null);
+                    if (appointment != null && appointment.isFreeVisit()) unitPrice = BigDecimal.ZERO;
+                }
+            } else {
+                // Use the caller-supplied unitPrice; fall back to the charge-master default only when
+                // the caller explicitly sends 0 (i.e. they did not supply a price themselves).
+                unitPrice = (itemReq.unitPrice() != null && itemReq.unitPrice().compareTo(BigDecimal.ZERO) > 0)
+                        ? itemReq.unitPrice()
+                        : (chargeMaster != null ? chargeMaster.getDefaultPrice() : BigDecimal.ZERO);
+            }
             item.setUnitPrice(unitPrice);
             item.setAmount(unitPrice.multiply(BigDecimal.valueOf(itemReq.quantity())));
             bill.addItem(item);
@@ -298,6 +326,7 @@ public class BillService {
         bill.setPaidAmount(BigDecimal.ZERO);
         bill.setBalanceAmount(BigDecimal.ZERO);
         bill.setComments("free visit");
+        bill.setFreeVisit(true);
         bill.setCreatedBy(actor != null ? actor.userId() : appointment.getCreatedBy());
         bill.setFinalizedAt(java.time.LocalDateTime.now());
 
@@ -328,6 +357,8 @@ public class BillService {
                     "patientId", bill.getPatientId(),
                     "appointmentId", bill.getAppointmentId(),
                     "billType", bill.getBillType(),
+                    "freeVisit", Boolean.TRUE,
+                    "paymentMode", "FREE_VISIT",
                     "subtotalAmount", bill.getSubtotalAmount(),
                     "comments", bill.getComments(),
                     "items", java.util.List.of(java.util.Map.of(
@@ -398,8 +429,17 @@ public class BillService {
             .orElseThrow(() -> ResourceNotFoundException.of("Patient", bill.getPatientId()));
         Appointment appointment = bill.getAppointmentId() == null ? null
             : appointmentRepository.findById(bill.getAppointmentId()).orElse(null);
-        String doctorName = appointment == null ? null : doctorRepository.findDisplayNamesByIds(Set.of(appointment.getDoctorId())).stream()
-            .findFirst().map(DoctorRepository.DoctorDisplayRow::getFullName).orElse(null);
+        String doctorName = null;
+        if (bill.getAdvisorType() == AdvisorType.INTERNAL_DOCTOR && bill.getAdvisorDoctorId() != null) {
+            doctorName = doctorRepository.findDisplayNamesByIds(Set.of(bill.getAdvisorDoctorId())).stream()
+                .findFirst().map(DoctorRepository.DoctorDisplayRow::getFullName).orElse(null);
+        } else if (bill.getAdvisorType() == AdvisorType.EXTERNAL_DOCTOR) {
+            doctorName = bill.getExternalAdvisorName();
+        }
+        if (doctorName == null && bill.getAdvisorType() != AdvisorType.SELF && appointment != null) {
+            doctorName = doctorRepository.findDisplayNamesByIds(Set.of(appointment.getDoctorId())).stream()
+                .findFirst().map(DoctorRepository.DoctorDisplayRow::getFullName).orElse(null);
+        }
         return BillResponse.from(bill, patient.getFirstName() + " " + patient.getLastName(),
             patient.getPatientCode(), patient.getPrimaryPhone(),
             appointment == null ? null : appointment.getAppointmentCode(), doctorName);
@@ -424,15 +464,27 @@ public class BillService {
                     .collect(Collectors.toMap(AppointmentRepository.AppointmentDoctorRow::getId,
                         AppointmentRepository.AppointmentDoctorRow::getAppointmentCode));
         Set<Long> doctorIds = Set.copyOf(doctorIdsByAppointment.values());
-        Map<Long, String> doctorNames = doctorIds.isEmpty() ? Map.of()
-            : doctorRepository.findDisplayNamesByIds(doctorIds).stream()
+        Set<Long> advisorDoctorIds = bills.stream().map(Bill::getAdvisorDoctorId)
+                .filter(java.util.Objects::nonNull).collect(Collectors.toSet());
+        Set<Long> allDoctorIds = new java.util.HashSet<>(doctorIds);
+        allDoctorIds.addAll(advisorDoctorIds);
+        Map<Long, String> doctorNames = allDoctorIds.isEmpty() ? Map.of()
+            : doctorRepository.findDisplayNamesByIds(allDoctorIds).stream()
                 .collect(Collectors.toMap(DoctorRepository.DoctorDisplayRow::getId,
                     DoctorRepository.DoctorDisplayRow::getFullName));
 
         return bills.map(bill -> {
             PatientRepository.PatientBillingRow patient = patientRows.get(bill.getPatientId());
-            String doctorName = bill.getAppointmentId() == null ? null
-                : doctorNames.get(doctorIdsByAppointment.get(bill.getAppointmentId()));
+            String doctorName = null;
+            if (bill.getAdvisorType() == com.hms.billing.entity.AdvisorType.INTERNAL_DOCTOR
+                    && bill.getAdvisorDoctorId() != null) {
+                doctorName = doctorNames.get(bill.getAdvisorDoctorId());
+            } else if (bill.getAdvisorType() == com.hms.billing.entity.AdvisorType.EXTERNAL_DOCTOR) {
+                doctorName = bill.getExternalAdvisorName();
+            } else if (bill.getAdvisorType() == com.hms.billing.entity.AdvisorType.SELF || bill.getAdvisorType() == null) {
+                doctorName = bill.getAppointmentId() == null ? null
+                    : doctorNames.get(doctorIdsByAppointment.get(bill.getAppointmentId()));
+            }
             return BillResponse.from(bill, patient == null ? null : patient.getFullName(),
                 patient == null ? null : patient.getPatientCode(),
                     patient == null ? null : patient.getPrimaryPhone(),

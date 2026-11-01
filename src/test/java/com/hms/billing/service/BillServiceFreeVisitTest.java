@@ -27,7 +27,6 @@ import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.security.crypto.password.PasswordEncoder;
 
 import java.math.BigDecimal;
-import java.util.Map;
 import java.util.Optional;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -98,6 +97,7 @@ class BillServiceFreeVisitTest {
         assertThat(bill.getBillType()).isEqualTo(BillType.OPD);
         assertThat(bill.getStatus()).isEqualTo(BillStatus.FINALIZED);
         assertThat(bill.getComments()).isEqualTo("free visit");
+        assertThat(bill.isFreeVisit()).isTrue();
         assertThat(bill.getTotalAmount()).isEqualByComparingTo(BigDecimal.ZERO);
         assertThat(bill.getSubtotalAmount()).isEqualByComparingTo(BigDecimal.ZERO);
         assertThat(bill.getDiscountAmount()).isEqualByComparingTo(BigDecimal.ZERO);

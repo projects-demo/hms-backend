@@ -7,6 +7,7 @@ import com.hms.common.PageRequestFactory;
 import com.hms.common.dto.ApiResponse;
 import com.hms.common.dto.PageResponse;
 import com.hms.security.jwt.AuthenticatedUser;
+import com.hms.doctor.repository.DoctorRepository;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
@@ -17,6 +18,8 @@ import org.springframework.web.bind.annotation.*;
 
 import java.time.LocalDate;
 
+import org.springframework.data.domain.Sort;
+
 @RestController
 @RequestMapping("/api/v1/appointments")
 @RequiredArgsConstructor
@@ -25,6 +28,7 @@ public class AppointmentController {
 
     private final AppointmentService appointmentService;
     private final PageRequestFactory pageRequestFactory;
+    private final DoctorRepository doctorRepository;
 
     @PostMapping
     @Operation(summary = "Book an appointment")
@@ -53,8 +57,13 @@ public class AppointmentController {
             @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate date,
             @RequestParam(required = false) AppointmentStatus status,
             @RequestParam(required = false) Integer page,
-            @RequestParam(required = false) Integer size) {
-        var pageable = pageRequestFactory.of(page, size, "appointmentDate", "desc");
+            @RequestParam(required = false) Integer size,
+            @AuthenticationPrincipal AuthenticatedUser actor) {
+        if (actor != null && "DOCTOR".equals(actor.role())) {
+            doctorId = doctorRepository.findByUserId(actor.userId()).map(d -> d.getId()).orElse(-1L);
+        }
+        var pageable = pageRequestFactory.of(page, size,
+                Sort.by(Sort.Order.desc("appointmentDate"), Sort.Order.desc("id")));
         var result = appointmentService.searchResponses(doctorId, patientId, date, status, pageable);
         return ApiResponse.ok(PageResponse.of(result));
     }

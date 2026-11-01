@@ -18,6 +18,8 @@ import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.web.bind.annotation.*;
 
+import org.springframework.data.domain.Sort;
+
 @RestController
 @RequestMapping("/api/v1/patients")
 @RequiredArgsConstructor
@@ -57,7 +59,8 @@ public class PatientController {
             @RequestParam(required = false) String q,
             @RequestParam(required = false) Integer page,
             @RequestParam(required = false) Integer size) {
-        var pageable = pageRequestFactory.of(page, size, "createdAt", "desc");
+        var pageable = pageRequestFactory.of(page, size,
+                Sort.by(Sort.Order.desc("createdAt"), Sort.Order.desc("id")));
         return ApiResponse.ok(PageResponse.of(patientService.search(q, pageable).map(PatientResponse::from)));
     }
 

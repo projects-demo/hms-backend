@@ -6,6 +6,7 @@ import com.hms.common.dto.PageResponse;
 import com.hms.common.exception.ResourceNotFoundException;
 import com.hms.opd.dto.CompleteConsultationRequest;
 import com.hms.opd.dto.ConsultationResponse;
+import com.hms.opd.dto.NurseVitalsRequest;
 import com.hms.opd.dto.PrescriptionResponse;
 import com.hms.opd.dto.StartConsultationRequest;
 import com.hms.opd.repository.PrescriptionRepository;
@@ -28,7 +29,7 @@ public class ConsultationController {
     private final PageRequestFactory pageRequestFactory;
 
     @PostMapping
-    @PreAuthorize("hasAnyRole('DOCTOR','NURSE')")
+    @PreAuthorize("hasRole('DOCTOR')")
     @Operation(summary = "Start a consultation for an appointment")
     public ApiResponse<ConsultationResponse> start(@Valid @RequestBody StartConsultationRequest request) {
         return ApiResponse.ok(ConsultationResponse.from(consultationService.start(request)));
@@ -71,5 +72,12 @@ public class ConsultationController {
             @RequestParam(required = false) Integer page, @RequestParam(required = false) Integer size) {
         var pageable = pageRequestFactory.of(page, size, "startedAt", "desc");
         return ApiResponse.ok(PageResponse.of(consultationService.byDoctor(doctorId, pageable).map(ConsultationResponse::from)));
+    }
+
+    @PostMapping("/nurse-vitals")
+    @PreAuthorize("hasRole('NURSE')")
+    @Operation(summary = "Save patient vitals without starting or completing a consultation")
+    public ApiResponse<ConsultationResponse> saveNurseVitals(@Valid @RequestBody NurseVitalsRequest request) {
+        return ApiResponse.ok(ConsultationResponse.from(consultationService.saveNurseVitals(request)));
     }
 }

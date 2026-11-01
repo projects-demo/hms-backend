@@ -73,7 +73,7 @@ public interface BillRepository extends JpaRepository<Bill, Long> {
                   coalesce(sum(tax_amount), 0) as taxTotal,
                   coalesce(sum(subtotal_amount), 0) as subtotalTotal,
                   count(*) as billCount,
-                  coalesce(sum(case when comments = 'free visit' or comments like '%free visit%' then 1 else 0 end), 0) as freeBillCount
+                  coalesce(sum(case when is_free_visit = true or lower(comments) like '%free visit%' then 1 else 0 end), 0) as freeBillCount
            from bills
            where status = 'FINALIZED' and created_at between :from and :to
            """, nativeQuery = true)
@@ -91,4 +91,17 @@ public interface BillRepository extends JpaRepository<Bill, Long> {
         Long getBillCount();
         Long getFreeBillCount();
     }
+
+    @Query(value = """
+           select coalesce(sum(b.total_amount), 0)
+           from bills b
+           join appointments a on a.id = b.appointment_id
+           where b.status = 'FINALIZED'
+             and a.doctor_id = :doctorId
+             and b.created_at between :from and :to
+           """, nativeQuery = true)
+    java.math.BigDecimal sumDoctorRevenueBetween(@Param("doctorId") Long doctorId,
+                                                  @Param("from") java.time.LocalDateTime from,
+                                                  @Param("to") java.time.LocalDateTime to);
+
 }

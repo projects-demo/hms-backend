@@ -66,6 +66,23 @@ public class AnalyticsService {
                 totalBeds, occupiedBeds, occupancyPct, lowStock, expiring);
     }
 
+    public DashboardSummaryResponse dashboardSummary(Long doctorId) {
+        LocalDate today = java.time.LocalDate.now();
+        LocalDateTime start = today.atStartOfDay();
+        LocalDateTime end = today.atTime(java.time.LocalTime.MAX);
+        long appointments = doctorId == null
+                ? appointmentRepository.countByAppointmentDate(today)
+                : appointmentRepository.countByDoctorIdAndAppointmentDate(doctorId, today);
+        long completed = doctorId == null
+                ? appointmentRepository.countByAppointmentDateAndStatus(today, AppointmentStatus.COMPLETED)
+                : appointmentRepository.countByDoctorIdAndAppointmentDateAndStatus(doctorId, today, AppointmentStatus.COMPLETED);
+        BigDecimal revenue = doctorId == null
+                ? billRepository.sumRevenueBetween(start, end)
+                : billRepository.sumDoctorRevenueBetween(doctorId, start, end);
+        return new DashboardSummaryResponse(appointments, completed, revenue,
+                0L, 0L, 0L, 0.0, 0L, 0L);
+    }
+
     public RevenueReportResponse revenueReport(LocalDate from, LocalDate to) {
         LocalDateTime start = from.atStartOfDay();
         LocalDateTime end = to.atTime(LocalTime.MAX);

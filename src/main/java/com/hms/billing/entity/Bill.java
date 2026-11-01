@@ -85,6 +85,9 @@ public class Bill extends AuditableEntity {
     @Column(name = "finalized_at")
     private LocalDateTime finalizedAt;
 
+    @Column(name = "is_free_visit", nullable = false)
+    private boolean freeVisit = false;
+
     @OneToMany(mappedBy = "bill", cascade = CascadeType.ALL, orphanRemoval = true)
     private List<BillItem> items = new ArrayList<>();
 

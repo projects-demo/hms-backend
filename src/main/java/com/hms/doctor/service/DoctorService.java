@@ -20,6 +20,7 @@ import org.springframework.data.domain.Pageable;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.scheduling.annotation.Scheduled;
 
 import java.util.List;
 
@@ -135,6 +136,9 @@ public class DoctorService {
      * the nightly scheduled job will auto-reactivate when leaveEndDate passes.
      */
     public void setLeave(Long id, java.time.LocalDate startDate, java.time.LocalDate endDate) {
+        if (startDate == null || endDate == null || endDate.isBefore(startDate)) {
+            throw new BusinessRuleException("Leave end date must be on or after the start date");
+        }
         Doctor doctor = getOrThrow(id);
         doctor.setLeaveStartDate(startDate);
         doctor.setLeaveEndDate(endDate);
@@ -143,11 +147,12 @@ public class DoctorService {
         doctorRepository.save(doctor);
     }
 
-    /** Called by the nightly scheduler to auto-reactivate doctors whose leave has ended (item 16). */
+    /** Called by the nightly scheduler to auto-reactivate doctors whose leave has ended. */
+    @Scheduled(cron = "0 0 0 * * *", zone = "Asia/Kolkata")
     public void checkAndReactivateExpiredLeaves() {
         java.time.LocalDate today = java.time.LocalDate.now();
         doctorRepository.findAll().stream()
-            .filter(d -> d.getLeaveEndDate() != null && !today.isBefore(d.getLeaveEndDate())
+            .filter(d -> d.getLeaveEndDate() != null && today.isAfter(d.getLeaveEndDate())
                          && d.getAvailabilityStatus() == com.hms.doctor.entity.AvailabilityStatus.ON_LEAVE)
             .forEach(d -> {
                 d.setActive(true);

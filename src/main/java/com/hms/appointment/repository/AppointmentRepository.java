@@ -45,6 +45,8 @@ public interface AppointmentRepository extends JpaRepository<Appointment, Long> 
 
     long countByAppointmentDateAndStatus(LocalDate date, AppointmentStatus status);
 
+    long countByDoctorIdAndAppointmentDateAndStatus(Long doctorId, LocalDate date, AppointmentStatus status);
+
     @Query(value = """
            select a.id as appointmentId,
                         case when a.status = 'CANCELLED' then null else

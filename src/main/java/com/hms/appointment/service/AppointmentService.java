@@ -14,6 +14,7 @@ import com.hms.doctor.entity.Doctor;
 import com.hms.doctor.entity.DoctorAvailability;
 import com.hms.doctor.repository.DoctorAvailabilityRepository;
 import com.hms.doctor.repository.DoctorRepository;
+import com.hms.patient.entity.Patient;
 import com.hms.patient.repository.PatientRepository;
 import com.hms.security.jwt.AuthenticatedUser;
 import lombok.RequiredArgsConstructor;
@@ -24,6 +25,7 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.time.LocalDate;
 import java.time.LocalTime;
+import java.time.ZoneId;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
@@ -44,8 +46,16 @@ public class AppointmentService {
     private final CodeGeneratorService codeGeneratorService;
     private final BillService billService;
 
+    private static final ZoneId IST_ZONE = ZoneId.of("Asia/Kolkata");
+
     /** Materializes bookable slots for one doctor/date from their weekly availability template. Idempotent. */
     public List<AppointmentSlot> generateSlotsForDate(Long doctorId, LocalDate date) {
+        Doctor doctor = doctorRepository.findById(doctorId)
+                .orElseThrow(() -> ResourceNotFoundException.of("Doctor", doctorId));
+        if (!doctor.isActive()) {
+            throw new BusinessRuleException("This doctor is inactive and cannot accept appointments");
+        }
+
         // JPA's DayOfWeek.MONDAY=1 aligns with our 1=Mon..7=Sun convention already.
         short dow = (short) date.getDayOfWeek().getValue();
         List<DoctorAvailability> templates = availabilityRepository.findByDoctorIdAndActiveTrue(doctorId).stream()
@@ -79,7 +89,25 @@ public class AppointmentService {
 
     @Transactional(value = "transactionManager", readOnly = true)
     public List<AppointmentSlot> availableSlots(Long doctorId, LocalDate date) {
-        return slotRepository.findAvailable(doctorId, date, SlotStatus.AVAILABLE);
+        Doctor doctor = doctorRepository.findById(doctorId)
+                .orElseThrow(() -> ResourceNotFoundException.of("Doctor", doctorId));
+        if (!doctor.isActive()) {
+            return List.of();
+        }
+
+        List<AppointmentSlot> available = slotRepository.findAvailable(doctorId, date, SlotStatus.AVAILABLE);
+        LocalDate todayIst = LocalDate.now(IST_ZONE);
+        if (date.isBefore(todayIst)) {
+            return List.of();
+        }
+        if (!date.isEqual(todayIst)) {
+            return available;
+        }
+
+        LocalTime nowIst = LocalTime.now(IST_ZONE);
+        return available.stream()
+                .filter(slot -> slot.getStartTime().isAfter(nowIst))
+                .toList();
     }
 
     public Appointment book(BookAppointmentRequest r, AuthenticatedUser actor) {
@@ -94,10 +122,15 @@ public class AppointmentService {
     private Appointment bookInternal(BookAppointmentRequest r, Long actorUserId, AuthenticatedUser actor) {
         Doctor doctor = doctorRepository.findById(r.doctorId())
                 .orElseThrow(() -> ResourceNotFoundException.of("Doctor", r.doctorId()));
+        if (!doctor.isActive()) {
+            throw new BusinessRuleException("This doctor is inactive and cannot accept appointments");
+        }
         patientRepository.findById(r.patientId())
                 .orElseThrow(() -> ResourceNotFoundException.of("Patient", r.patientId()));
 
         if (r.slotId() != null) {
+            LocalDate todayIst = LocalDate.now(IST_ZONE);
+            LocalTime nowIst = LocalTime.now(IST_ZONE);
             AppointmentSlot slot = slotRepository.findById(r.slotId())
                     .orElseThrow(() -> ResourceNotFoundException.of("Slot", r.slotId()));
             if (!slot.getDoctorId().equals(r.doctorId()) || !slot.getSlotDate().equals(r.appointmentDate())) {
@@ -107,6 +140,9 @@ public class AppointmentService {
                 // @Version on AppointmentSlot also protects against the race where two
                 // receptionists book the same slot in the same instant.
                 throw new BusinessRuleException("This slot is no longer available - please pick another");
+            }
+            if (r.appointmentDate().isEqual(todayIst) && !slot.getStartTime().isAfter(nowIst)) {
+                throw new BusinessRuleException("This slot has already passed");
             }
             slot.setStatus(SlotStatus.BOOKED);
             slotRepository.save(slot);
@@ -195,13 +231,17 @@ public class AppointmentService {
         AppointmentSlot slot = appointment.getSlotId() == null
                 ? null
                 : slotRepository.findById(appointment.getSlotId()).orElse(null);
-        String patientName = patientRepository.findDisplayNamesByIds(List.of(appointment.getPatientId())).stream()
+        Patient patient = patientRepository.findById(appointment.getPatientId()).orElse(null);
+        String patientName = patient == null ? null : patient.getFirstName() + " " + patient.getLastName();
+        String doctorName = doctorRepository.findDisplayNamesByIds(List.of(appointment.getDoctorId())).stream()
             .findFirst()
-            .map(PatientRepository.PatientDisplayRow::getFullName)
+            .map(DoctorRepository.DoctorDisplayRow::getFullName)
             .orElse(null);
-        return AppointmentResponse.from(appointment, patientName, null, null,
-                slot == null ? null : slot.getStartTime(),
-                slot == null ? null : slot.getEndTime());
+        return AppointmentResponse.from(appointment, patientName,
+                patient == null ? null : patient.getAge(),
+                patient == null || patient.getGender() == null ? null : patient.getGender().name(),
+                patient == null ? null : patient.getPrimaryPhone(), doctorName, null,
+                slot == null ? null : slot.getStartTime(), slot == null ? null : slot.getEndTime());
     }
 
     @Transactional(value = "transactionManager", readOnly = true)
@@ -229,22 +269,29 @@ public class AppointmentService {
         Map<Long, AppointmentSlot> slotsById = slotRepository.findAllById(slotIds).stream()
             .collect(Collectors.toMap(AppointmentSlot::getId, slot -> slot));
         Set<Long> patientIds = appointments.stream().map(Appointment::getPatientId).collect(Collectors.toSet());
+        Map<Long, Patient> patientsById = patientRepository.findAllById(patientIds).stream()
+                .collect(Collectors.toMap(Patient::getId, patient -> patient));
         Map<Long, String> patientNames = patientRepository.findDisplayNamesByIds(patientIds).stream()
                 .collect(Collectors.toMap(PatientRepository.PatientDisplayRow::getId,
                         PatientRepository.PatientDisplayRow::getFullName));
 
         return appointments.map(a -> {
             AppointmentSlot slot = slotsById.get(a.getSlotId());
-            return AppointmentResponse.from(a, patientNames.get(a.getPatientId()), doctorNames.get(a.getDoctorId()), queueNumbers.get(a.getId()),
-                slot == null ? null : slot.getStartTime(),
-                slot == null ? null : slot.getEndTime());
+            Patient patient = patientsById.get(a.getPatientId());
+            return AppointmentResponse.from(a,
+                patientNames.get(a.getPatientId()),
+                patient == null ? null : patient.getAge(),
+                patient == null || patient.getGender() == null ? null : patient.getGender().name(),
+                patient == null ? null : patient.getPrimaryPhone(),
+                doctorNames.get(a.getDoctorId()), queueNumbers.get(a.getId()),
+                slot == null ? null : slot.getStartTime(), slot == null ? null : slot.getEndTime());
         });
     }
 
     private void validateTransition(AppointmentStatus from, AppointmentStatus to) {
         boolean valid = switch (from) {
             case SCHEDULED -> to == AppointmentStatus.CHECKED_IN || to == AppointmentStatus.CANCELLED || to == AppointmentStatus.NO_SHOW;
-            case CHECKED_IN -> to == AppointmentStatus.IN_CONSULTATION || to == AppointmentStatus.CANCELLED;
+            case CHECKED_IN -> to == AppointmentStatus.IN_CONSULTATION || to == AppointmentStatus.COMPLETED || to == AppointmentStatus.CANCELLED;
             case IN_CONSULTATION -> to == AppointmentStatus.COMPLETED;
             default -> false;
         };

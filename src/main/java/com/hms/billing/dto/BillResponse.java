@@ -14,6 +14,7 @@ public record BillResponse(
         String billType, String status, BigDecimal subtotalAmount, BigDecimal discountAmount,
         Long discountMasterId, BigDecimal discountPercentage, BigDecimal taxAmount,
         BigDecimal totalAmount, BigDecimal paidAmount, BigDecimal balanceAmount,
+        boolean freeVisit,
         String comments,
         LocalDateTime finalizedAt,
         LocalDateTime createdAt,
@@ -29,7 +30,7 @@ public record BillResponse(
                 b.getAdvisorType() == null ? null : b.getAdvisorType().name(),
                 b.getBillType().name(), b.getStatus().name(), b.getSubtotalAmount(), b.getDiscountAmount(),
                 b.getDiscountMasterId(), b.getDiscountPercentage(), b.getTaxAmount(), b.getTotalAmount(),
-                b.getPaidAmount(), b.getBalanceAmount(), b.getComments(), b.getFinalizedAt(), b.getCreatedAt(), items);
+                b.getPaidAmount(), b.getBalanceAmount(), b.isFreeVisit(), b.getComments(), b.getFinalizedAt(), b.getCreatedAt(), items);
     }
 
         public static BillResponse from(Bill b, String patientName, String patientCode, String patientPhone, String appointmentCode, String doctorName) {
@@ -42,7 +43,7 @@ public record BillResponse(
                 b.getAdmissionId(), b.getAppointmentId(), appointmentCode, resolvedDoctorName, advisorType,
                 b.getBillType().name(), b.getStatus().name(),
                 b.getSubtotalAmount(), b.getDiscountAmount(), b.getDiscountMasterId(), b.getDiscountPercentage(),
-                b.getTaxAmount(), b.getTotalAmount(), b.getPaidAmount(), b.getBalanceAmount(), b.getComments(),
+                b.getTaxAmount(), b.getTotalAmount(), b.getPaidAmount(), b.getBalanceAmount(), b.isFreeVisit(), b.getComments(),
                 b.getFinalizedAt(), b.getCreatedAt(), items);
     }
 }

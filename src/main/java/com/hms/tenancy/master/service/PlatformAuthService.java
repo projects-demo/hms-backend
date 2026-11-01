@@ -34,6 +34,6 @@ public class PlatformAuthService {
         String access = jwtService.generateAccessToken(user.getUsername(), claims);
         String refresh = jwtService.generateRefreshToken(user.getUsername(), claims);
         return new LoginResponse(access, refresh, jwtService.getAccessTtlMinutes() * 60,
-                user.getId(), user.getUsername(), user.getFullName(), user.getRole().name(), null, null);
+                user.getId(), user.getUsername(), user.getFullName(), user.getRole().name(), null, null, null);
     }
 }

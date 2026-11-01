@@ -33,4 +33,10 @@ public class PageRequestFactory {
     public Pageable of(Integer page, Integer size) {
         return of(page, size, null, null);
     }
+
+    public Pageable of(Integer page, Integer size, Sort sort) {
+        int p = (page == null || page < 0) ? 0 : page;
+        int s = (size == null || size <= 0) ? defaultSize : Math.min(size, maxSize);
+        return PageRequest.of(p, s, sort == null ? Sort.unsorted() : sort);
+    }
 }

@@ -9,5 +9,6 @@ public record LoginResponse(
         String fullName,
         String role,
         String tenantCode,
-        String hospitalName
+        String hospitalName,
+        Long doctorId
 ) {}

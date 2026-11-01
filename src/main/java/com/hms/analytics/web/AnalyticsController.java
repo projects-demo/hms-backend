@@ -3,11 +3,11 @@ package com.hms.analytics.web;
 import com.hms.analytics.dto.*;
 import com.hms.analytics.service.AnalyticsService;
 import com.hms.common.dto.ApiResponse;
-import io.swagger.v3.oas.annotations.Operation;
-import io.swagger.v3.oas.annotations.tags.Tag;
-import lombok.RequiredArgsConstructor;
+import com.hms.doctor.repository.DoctorRepository;
+import com.hms.security.jwt.AuthenticatedUser;
 import org.springframework.format.annotation.DateTimeFormat;
 import org.springframework.security.access.prepost.PreAuthorize;
+import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.web.bind.annotation.*;
 
 import java.time.LocalDate;
@@ -17,15 +17,19 @@ import java.util.List;
 @RequestMapping("/api/v1/analytics")
 @RequiredArgsConstructor
 @Tag(name = "Analytics & Dashboard", description = "Hospital-wide reporting: OPD trends, doctor/department performance, revenue breakdown, demographics")
-@PreAuthorize("hasAnyRole('HOSPITAL_ADMIN','BILLING_STAFF')")
+@PreAuthorize("hasAnyRole('HOSPITAL_ADMIN','BILLING_STAFF','DOCTOR')")
 public class AnalyticsController {
 
     private final AnalyticsService analyticsService;
+    private final DoctorRepository doctorRepository;
 
     @GetMapping("/dashboard-summary")
     @Operation(summary = "Today's key operational numbers", description = "Appointments, revenue, bed occupancy, low-stock/expiring drugs - all single aggregate queries, no full-table scans.")
-    public ApiResponse<DashboardSummaryResponse> dashboard() {
-        return ApiResponse.ok(analyticsService.dashboardSummary());
+    public ApiResponse<DashboardSummaryResponse> dashboard(@AuthenticationPrincipal AuthenticatedUser actor) {
+        Long doctorId = actor != null && "DOCTOR".equals(actor.role())
+                ? doctorRepository.findByUserId(actor.userId()).map(d -> d.getId()).orElse(-1L)
+                : null;
+        return ApiResponse.ok(analyticsService.dashboardSummary(doctorId));
     }
 
     @GetMapping("/revenue-report")

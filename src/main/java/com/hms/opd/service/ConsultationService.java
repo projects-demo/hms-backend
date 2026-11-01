@@ -7,6 +7,7 @@ import com.hms.common.exception.DuplicateResourceException;
 import com.hms.common.exception.ResourceNotFoundException;
 import com.hms.opd.dto.CompleteConsultationRequest;
 import com.hms.opd.dto.StartConsultationRequest;
+import com.hms.opd.dto.NurseVitalsRequest;
 import com.hms.opd.entity.Consultation;
 import com.hms.opd.entity.ConsultationStatus;
 import com.hms.opd.entity.Prescription;
@@ -87,6 +88,31 @@ public class ConsultationService {
 
         appointmentService.changeStatus(c.getAppointmentId(), AppointmentStatus.COMPLETED);
         return c;
+    }
+
+    public Consultation saveNurseVitals(NurseVitalsRequest r) {
+        Consultation c = consultationRepository.findByAppointmentId(r.appointmentId()).orElseGet(() -> {
+            Consultation draft = new Consultation();
+            draft.setAppointmentId(r.appointmentId());
+            draft.setPatientId(r.patientId());
+            draft.setDoctorId(r.doctorId());
+            draft.setStatus(ConsultationStatus.DRAFT);
+            return draft;
+        });
+        if (c.getStatus() == ConsultationStatus.COMPLETED) {
+            throw new BusinessRuleException("Consultation is already completed");
+        }
+        if (r.vitals() != null) {
+            c.setBp(r.vitals().bp());
+            c.setPulse(r.vitals().pulse());
+            c.setTemperature(r.vitals().temperature());
+            c.setWeightKg(r.vitals().weightKg());
+            c.setHeightCm(r.vitals().heightCm());
+            c.setSpo2(r.vitals().spo2());
+        }
+        Consultation saved = consultationRepository.save(c);
+        appointmentService.changeStatus(r.appointmentId(), AppointmentStatus.COMPLETED);
+        return saved;
     }
 
     @Transactional(value = "transactionManager", readOnly = true)
